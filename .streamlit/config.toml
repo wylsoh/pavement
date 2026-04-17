@@ -1,0 +1,15 @@
+[theme]
+# 主色调：采用学术常用的深海军蓝
+primaryColor = "#1f497d"
+
+# 背景色：纯白，符合纸质印刷感
+backgroundColor = "#ffffff"
+
+# 侧边栏/次要背景色：极浅的灰色，区分层级但不喧宾夺主
+secondaryBackgroundColor = "#f2f2f2"
+
+# 文本颜色：深灰/纯黑，提高对比度
+textColor = "#000000"
+
+# 字体：强化学术感的衬线字体 (Serif)
+font = "serif"
