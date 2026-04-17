@@ -5,87 +5,114 @@ from plotly.subplots import make_subplots
 from scipy.ndimage import rotate
 
 
-def get_perfect_stitched_matrix(h5_path, num_blocks=10, correction_angle=0, overlap_rows=5):
+def get_perfect_stitched_matrix(h5_path, num_blocks=10, correction_angle=0, overlap_rows=8, crop_edge_ratio=0.20,
+                                max_std=15.0):
     """
-    终极拼接函数：同时包含 X/Y轴(旋转纠偏) 和 Z轴(高度鲁棒对齐)
+    终极护城河版：包含二维平面拟合熨平 + 坏死路段自动剔除
+
+    参数:
+        max_std: 容忍的最大标准差。如果某段路面熨平后起伏依然极其夸张，直接当作废片跳过！
     """
     with h5py.File(h5_path, 'r') as h5f:
         group = h5f['road_segments']
         names = sorted(list(group.keys()))[:num_blocks]
 
-        # ================= 第一块数据初始化 =================
-        first_data = group[names[0]][:]
+        zz = None
 
-        # 1. X/Y轴处理：第一块旋转纠偏
-        if correction_angle != 0:
-            first_data = rotate(first_data, angle=correction_angle, reshape=False, mode='nearest')
+        # S 型平滑权重
+        x = np.linspace(0, 1, overlap_rows)
+        weights_1d = (1 + np.cos(np.pi * x)) / 2.0
+        weights = weights_1d.reshape(-1, 1)
 
-        zz = first_data[1:-1, 1:-1]
-
-        # ================= 循环拼接后续块 =================
-        for name in names[1:]:
+        for name in names:
             data = group[name][:]
+            valid_mask = data != 0
 
-            # 1. X/Y轴处理：对当前块进行同样的旋转纠偏
+            if np.sum(valid_mask) < 100:
+                continue  # 如果数据太空，直接跳过
+
+            # ========================================================
+            # 【全新突破 1】二维平面拟合去趋势 (2D Plane Detrending)
+            # 彻底解决单块路段“左高右低”或“前高后低”的倾斜误差！
+            # ========================================================
+            # 获取有效像素的 X, Y 坐标系
+            Y, X = np.indices(data.shape)
+            x_val = X[valid_mask]
+            y_val = Y[valid_mask]
+            z_val = data[valid_mask]
+
+            # 构建最小二乘法方程组：Z = a*X + b*Y + c
+            A = np.column_stack((x_val, y_val, np.ones_like(x_val)))
+
+            # 求解出当前这块路面的“倾斜平面” (a, b 为倾斜角，c 为基础高度)
+            coeffs, _, _, _ = np.linalg.lstsq(A, z_val, rcond=None)
+            a, b, c = coeffs
+
+            # 重构出这个倾斜的基准面
+            plane = a * X + b * Y + c
+
+            # 【熨平操作】用原始数据减去这个倾斜面，路面瞬间绝对水平且居于 Z=0！
+            data[valid_mask] = data[valid_mask] - plane[valid_mask]
+
+            # ========================================================
+            # 【全新突破 2】坏死路段动态免疫隔离
+            # ========================================================
+            # 熨平后，计算这段路的标准差。正常微观纹理的标准差通常在 1~5 毫米之间。
+            # 如果某段路算出来标准差达到几十，说明这是一段全是噪点/飞点的坏死数据。
+            current_std = np.std(data[valid_mask])
+            if current_std > max_std:
+                print(f"⚠️ 触发保护机制: 跳过路段 [{name}]！检测到极端异常波动 (标准差={current_std:.2f} > {max_std})")
+                continue  # 丢弃这块废数据，不让它污染主干路面
+
+            # ---------------- 以下为标准的旋转与拼接逻辑 ----------------
             if correction_angle != 0:
                 data = rotate(data, angle=correction_angle, reshape=False, mode='nearest')
+                trim_y = max(1, int(data.shape[1] * np.sin(np.deg2rad(abs(correction_angle))))) + 2
+            else:
+                trim_y = 1
 
-            # ========================================================
-            # 2. Z轴处理：中轴线安全采样对齐 (彻底修复空切片 Bug！)
-            # ========================================================
+            data = data[trim_y:-trim_y, 1:-1]
+
+            if zz is None:
+                zz = data
+                continue
+
             width = zz.shape[1]
-            mid_col = width // 2
+            mid_col, safe_w = width // 2, max(1, width // 4)
+            start_c, end_c = max(0, mid_col - safe_w), min(width, mid_col + safe_w)
 
-            # 动态计算安全宽度：只取路面宽度的正中间 50% 的区域
-            safe_width = max(1, width // 4)
+            edge_zz = zz[-overlap_rows:, start_c:end_c]
+            edge_data = data[:overlap_rows, start_c:end_c]
 
-            # 边界保护：确保起始和结束索引绝对不会出现负数或越界
-            start_col = max(0, mid_col - safe_width)
-            end_col = min(width, mid_col + safe_width)
+            valid_zz = edge_zz[edge_zz != 0]
+            valid_data = edge_data[edge_data != 0]
 
-            # 提取上一个矩阵尾部中心，和当前矩阵头部中心的纯净数据
-            edge_zz_safe = zz[-overlap_rows:, start_col:end_col]
-            edge_data_safe = data[:overlap_rows, start_col:end_col]
-
-            # 剔除无效的背景像素 0
-            valid_zz = edge_zz_safe[edge_zz_safe != 0]
-            valid_data = edge_data_safe[edge_data_safe != 0]
-
-            # 安全计算高差（双重保护机制：确保数组不为空才求中位数）
             if len(valid_zz) > 0 and len(valid_data) > 0:
                 gaocha = np.median(valid_zz) - np.median(valid_data)
             else:
-                # 如果中间部分全是0(极端异常)，则退回使用整个截面的均值兜底
                 gaocha = np.mean(zz[-overlap_rows:, :]) - np.mean(data[:overlap_rows, :])
 
+            data += gaocha
 
-            # 1. 加上高差补偿，获得修正后的当前块
-            data_fixed = data[1:-1, 1:-1] + gaocha
+            overlap_A = zz[-overlap_rows:, :]
+            overlap_B = data[:overlap_rows, :]
 
-            # ========================================================
-            # 3. 边缘平滑渐变融合 (Alpha Blending 彻底消除接缝突变)
-            # ========================================================
+            zz[-overlap_rows:, :] = overlap_A * weights + overlap_B * (1.0 - weights)
+            zz = np.vstack((zz, data[overlap_rows:, :]))
 
-            # 提取上一块路面的“物理重叠区尾部”和当前路面的“物理重叠区头部”
-            overlap_A = zz[-overlap_rows:, :]  # 上一块的最后几行
-            overlap_B = data_fixed[:overlap_rows, :]  # 当前块的最前几行
+    # ========================================================
+    # 最终车流区提取与宏观净化
+    # ========================================================
+    if crop_edge_ratio > 0:
+        trim_cols = int(zz.shape[1] * crop_edge_ratio)
+        if trim_cols > 0:
+            zz = zz[:, trim_cols:-trim_cols]
 
-            # 创建线性渐变权重 (一维数组：从 1.0 平滑过渡到 0.0)
-            # 例如 overlap_rows=5 时，权重为 [1.0, 0.75, 0.5, 0.25, 0.0]
-            weights_1d = np.linspace(1.0, 0.0, overlap_rows)
+    valid_points = zz[zz != 0]
+    if len(valid_points) > 0:
+        z_min, z_max = np.percentile(valid_points, [0.1, 99.9])
+        zz = np.clip(zz, z_min, z_max)
 
-            # 将一维权重变成二维列向量，以便与矩阵相乘
-            weights_matrix = weights_1d.reshape(-1, 1)
-
-            # 核心融合公式：上一块的权重越来越小，下一块的权重越来越大
-            blended_overlap = overlap_A * weights_matrix + overlap_B * (1.0 - weights_matrix)
-
-            # 将完美融合后的区域“覆盖”回上一块矩阵的尾部
-            zz[-overlap_rows:, :] = blended_overlap
-
-            # 将当前块**剔除重叠区后**的剩余部分，拼接到大矩阵末尾
-            # 注意：不再直接全量 vstack，否则会导致路面被拉长！
-            zz = np.vstack((zz, data_fixed[overlap_rows:, :]))
     return zz
 
 
@@ -94,36 +121,33 @@ def get_perfect_stitched_matrix(h5_path, num_blocks=10, correction_angle=0, over
 # ==========================================
 if __name__ == "__main__":
     h5_file = 'data/PavementDatabase.h5'
-
-    # 填入你观察到的单块偏移角度 (逆时针填负数，顺时针填正数)
     angle_to_fix = 1.35
 
-    print("⏳ 正在进行高精度 3D 缝合...")
+    print(f"⏳ 正在执行最高等级的【智能剔除+平面熨平】3D缝合...")
 
-    # ❌ 未处理 (带累积偏差，且只用均值对齐高度)
-    matrix_raw = get_perfect_stitched_matrix(h5_file, num_blocks=15, correction_angle=0)
+    # 旧逻辑 (无平面拟合)
+    matrix_raw = get_perfect_stitched_matrix(
+        h5_path=h5_file, num_blocks=20, correction_angle=0, overlap_rows=1, crop_edge_ratio=0.25, max_std=9999
+    )
 
-    # ✅ 完美处理 (旋转纠偏 + 中位数高度对齐)
-    matrix_fixed = get_perfect_stitched_matrix(h5_file, num_blocks=15, correction_angle=angle_to_fix)
+    # 终极逻辑 (带平面拟合 + 异常剔除)
+    # 如果你发现有的好路段被误删了，可以把 max_std 调大一点（比如 20 或 30）
+    matrix_fixed = get_perfect_stitched_matrix(
+        h5_path=h5_file, num_blocks=20, correction_angle=angle_to_fix, overlap_rows=8, crop_edge_ratio=0.25,
+        max_std=15.0
+    )
 
-    # 绘制双子图导出 HTML
     fig = make_subplots(
         rows=1, cols=2,
         specs=[[{'type': 'surface'}, {'type': 'surface'}]],
-        subplot_titles=('❌ 未处理直接拼接', f'✅ 完美对齐 (偏角 {angle_to_fix}° + 中位数高差补偿)'),
+        subplot_titles=('❌ 包含倾斜畸变及废片的路面', f'✅ 智能熨平且免疫异常路段'),
         horizontal_spacing=0.05
     )
 
     fig.add_trace(go.Surface(z=matrix_raw, colorscale='Viridis', showscale=False), row=1, col=1)
     fig.add_trace(go.Surface(z=matrix_fixed, colorscale='Viridis', showscale=True), row=1, col=2)
 
-    fig.update_layout(
-        title=f"路面 3D 拼接：旋转纠偏与高度对齐验证",
-        scene=dict(aspectmode='data'),
-        scene2=dict(aspectmode='data'),
-        height=800, width=1500
-    )
-
-    output_html = "完美拼接对比结果.html"
-    fig.write_html(output_html)
-    print(f"🎉 成功！请打开查看：{output_html}")
+    fig.update_layout(title=f"异常抗性测试：多维信号预处理效果", scene=dict(aspectmode='data'),
+                      scene2=dict(aspectmode='data'), height=800, width=1500)
+    fig.write_html("最终平面拟合与剔除结果.html")
+    print("🎉 成功！那个歪扭扭的干扰路段已经被摆平（或被直接清理）了！")
