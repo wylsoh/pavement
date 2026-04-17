@@ -1,107 +1,129 @@
-import h5py
 import numpy as np
-import pandas as pd
-import cv2
+import h5py
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from scipy.ndimage import rotate
 
 
-def stitch_road_from_h5(h5_filepath, num_segments=None, overlap_rows=5, verbose=True):
+def get_perfect_stitched_matrix(h5_path, num_blocks=10, correction_angle=0, overlap_rows=5):
     """
-    从 HDF5 数据库中读取路面高程矩阵并进行无缝边缘拼接。
-
-    参数:
-        h5_filepath (str): .h5 数据库文件的相对或绝对路径。
-        num_segments (int, optional): 指定要拼接的块数。如果为 None，则拼接数据库中所有的块。
-        overlap_rows (int): 计算高差时，用于边缘对齐的行数（默认使用交界处的 5 行）。
-        verbose (bool): 是否打印处理过程的提示信息。
-
-    返回:
-        np.ndarray: 拼接完成的完整 2D 路面高程矩阵。如果出错则返回 None。
+    终极拼接函数：同时包含 X/Y轴(旋转纠偏) 和 Z轴(高度鲁棒对齐)
     """
-    try:
-        with h5py.File(h5_filepath, 'r') as h5f:
-            if 'road_segments' not in h5f:
-                raise KeyError("HDF5 文件中未找到 'road_segments' 数据组！")
+    with h5py.File(h5_path, 'r') as h5f:
+        group = h5f['road_segments']
+        names = sorted(list(group.keys()))[:num_blocks]
 
-            road_group = h5f['road_segments']
-            # 自动获取所有数据块名称并排序 (如 '0001', '0002')
-            segment_names = sorted(list(road_group.keys()))
+        # ================= 第一块数据初始化 =================
+        first_data = group[names[0]][:]
 
-            if not segment_names:
-                raise ValueError("HDF5 数据库中没有数据块！")
+        # 1. X/Y轴处理：第一块旋转纠偏
+        if correction_angle != 0:
+            first_data = rotate(first_data, angle=correction_angle, reshape=False, mode='nearest')
 
-            if num_segments is not None:
-                segment_names = segment_names[:num_segments]
+        zz = first_data[1:-1, 1:-1]
 
-            if verbose:
-                print(f"⏳ 准备拼接 {len(segment_names)} 块路面数据...")
+        # ================= 循环拼接后续块 =================
+        for name in names[1:]:
+            data = group[name][:]
 
-            # 1. 动态获取单块数据的裁剪后维度，初始化空白矩阵
-            first_data = road_group[segment_names[0]][:]
-            data_cropped_shape = first_data[1:-1, 1:-1].shape
-            zz = np.zeros(data_cropped_shape)
+            # 1. X/Y轴处理：对当前块进行同样的旋转纠偏
+            if correction_angle != 0:
+                data = rotate(data, angle=correction_angle, reshape=False, mode='nearest')
 
-            # 2. 循环读取并执行边缘拼接逻辑
-            for name in segment_names:
-                # 懒加载：仅在循环到当前块时，才将其从硬盘读入内存
-                data = road_group[name][:]
+            # ========================================================
+            # 2. Z轴处理：中轴线安全采样对齐 (彻底修复空切片 Bug！)
+            # ========================================================
+            width = zz.shape[1]
+            mid_col = width // 2
 
-                # 边缘对齐高差计算（避开左右可能存在的不稳定边缘，仅取中间段 4:-5）
-                mean_zz_edge = np.mean(zz[-overlap_rows:, 4:-5])
-                mean_data_edge = np.mean(data[:overlap_rows, 4:-5])
-                gaocha = mean_zz_edge - mean_data_edge
+            # 动态计算安全宽度：只取路面宽度的正中间 50% 的区域
+            safe_width = max(1, width // 4)
 
-                # 矩阵裁剪与高差补偿拼接
-                data_cropped = data[1:-1, 1:-1] + gaocha
-                zz = np.vstack((zz, data_cropped))
+            # 边界保护：确保起始和结束索引绝对不会出现负数或越界
+            start_col = max(0, mid_col - safe_width)
+            end_col = min(width, mid_col + safe_width)
 
-            # 3. 去除初始化时用到的第一块空白 0 矩阵
-            zz_final = zz[data_cropped_shape[0]:, :]
+            # 提取上一个矩阵尾部中心，和当前矩阵头部中心的纯净数据
+            edge_zz_safe = zz[-overlap_rows:, start_col:end_col]
+            edge_data_safe = data[:overlap_rows, start_col:end_col]
 
-            if verbose:
-                print(f"✅ 拼接完成！最终生成的高程矩阵维度为: {zz_final.shape}")
+            # 剔除无效的背景像素 0
+            valid_zz = edge_zz_safe[edge_zz_safe != 0]
+            valid_data = edge_data_safe[edge_data_safe != 0]
 
-            return zz_final
-
-    except Exception as e:
-        print(f"❌ 拼接工具执行失败: {e}")
-        return None
-
-
-def export_pavement_data(zz_matrix, output_prefix="pavement"):
-    """
-    将拼接好的高程矩阵导出为 Streamlit 软件所需的一维 CSV 和 二维 PNG 图像。
-    """
-    if zz_matrix is None:
-        print("❌ 传入的矩阵为空，无法导出！")
-        return
-
-    # 1. 导出 1D 轮廓用于 Welch 功率谱分析 (Tab 2)
-    middle_col_index = zz_matrix.shape[1] // 2
-    profile_1d = zz_matrix[:, middle_col_index]
-
-    csv_filename = f"{output_prefix}_1d_profile.csv"
-    pd.DataFrame({'Elevation': profile_1d}).to_csv(csv_filename, index=False, encoding='utf-8-sig')
-    print(f"📄 已导出 1D 轮廓数据: {csv_filename}")
-
-    # 2. 导出 2D 灰度图像用于 2D FFT 纹理分析 (Tab 1)
-    # 将高程归一化到 0-255 并转为 uint8 格式
-    zz_norm = ((zz_matrix - zz_matrix.min()) / (zz_matrix.max() - zz_matrix.min()) * 255).astype(np.uint8)
-
-    png_filename = f"{output_prefix}_2d_texture.png"
-    # 使用 imencode 绕过中文路径报错问题
-    cv2.imencode('.png', zz_norm)[1].tofile(png_filename)
-    print(f"🖼️ 已导出 2D 纹理图像: {png_filename}")
+            # 安全计算高差（双重保护机制：确保数组不为空才求中位数）
+            if len(valid_zz) > 0 and len(valid_data) > 0:
+                gaocha = np.median(valid_zz) - np.median(valid_data)
+            else:
+                # 如果中间部分全是0(极端异常)，则退回使用整个截面的均值兜底
+                gaocha = np.mean(zz[-overlap_rows:, :]) - np.mean(data[:overlap_rows, :])
 
 
-# =========================================
-# 本地测试模块 (仅在直接运行此文件时执行)
-# =========================================
+            # 1. 加上高差补偿，获得修正后的当前块
+            data_fixed = data[1:-1, 1:-1] + gaocha
+
+            # ========================================================
+            # 3. 边缘平滑渐变融合 (Alpha Blending 彻底消除接缝突变)
+            # ========================================================
+
+            # 提取上一块路面的“物理重叠区尾部”和当前路面的“物理重叠区头部”
+            overlap_A = zz[-overlap_rows:, :]  # 上一块的最后几行
+            overlap_B = data_fixed[:overlap_rows, :]  # 当前块的最前几行
+
+            # 创建线性渐变权重 (一维数组：从 1.0 平滑过渡到 0.0)
+            # 例如 overlap_rows=5 时，权重为 [1.0, 0.75, 0.5, 0.25, 0.0]
+            weights_1d = np.linspace(1.0, 0.0, overlap_rows)
+
+            # 将一维权重变成二维列向量，以便与矩阵相乘
+            weights_matrix = weights_1d.reshape(-1, 1)
+
+            # 核心融合公式：上一块的权重越来越小，下一块的权重越来越大
+            blended_overlap = overlap_A * weights_matrix + overlap_B * (1.0 - weights_matrix)
+
+            # 将完美融合后的区域“覆盖”回上一块矩阵的尾部
+            zz[-overlap_rows:, :] = blended_overlap
+
+            # 将当前块**剔除重叠区后**的剩余部分，拼接到大矩阵末尾
+            # 注意：不再直接全量 vstack，否则会导致路面被拉长！
+            zz = np.vstack((zz, data_fixed[overlap_rows:, :]))
+    return zz
+
+
+# ==========================================
+# 🚀 运行对比测试
+# ==========================================
 if __name__ == "__main__":
-    test_h5_path = r'data/PavementDatabase.h5'
+    h5_file = 'data/PavementDatabase.h5'
 
-    # 测试 1: 调用拼接工具 (比如先拼 20 块试试水)
-    merged_matrix = stitch_road_from_h5(test_h5_path, num_segments=20)
+    # 填入你观察到的单块偏移角度 (逆时针填负数，顺时针填正数)
+    angle_to_fix = 1.35
 
-    # 测试 2: 导出结果
-    if merged_matrix is not None:
-        export_pavement_data(merged_matrix, output_prefix="test_road")
+    print("⏳ 正在进行高精度 3D 缝合...")
+
+    # ❌ 未处理 (带累积偏差，且只用均值对齐高度)
+    matrix_raw = get_perfect_stitched_matrix(h5_file, num_blocks=15, correction_angle=0)
+
+    # ✅ 完美处理 (旋转纠偏 + 中位数高度对齐)
+    matrix_fixed = get_perfect_stitched_matrix(h5_file, num_blocks=15, correction_angle=angle_to_fix)
+
+    # 绘制双子图导出 HTML
+    fig = make_subplots(
+        rows=1, cols=2,
+        specs=[[{'type': 'surface'}, {'type': 'surface'}]],
+        subplot_titles=('❌ 未处理直接拼接', f'✅ 完美对齐 (偏角 {angle_to_fix}° + 中位数高差补偿)'),
+        horizontal_spacing=0.05
+    )
+
+    fig.add_trace(go.Surface(z=matrix_raw, colorscale='Viridis', showscale=False), row=1, col=1)
+    fig.add_trace(go.Surface(z=matrix_fixed, colorscale='Viridis', showscale=True), row=1, col=2)
+
+    fig.update_layout(
+        title=f"路面 3D 拼接：旋转纠偏与高度对齐验证",
+        scene=dict(aspectmode='data'),
+        scene2=dict(aspectmode='data'),
+        height=800, width=1500
+    )
+
+    output_html = "完美拼接对比结果.html"
+    fig.write_html(output_html)
+    print(f"🎉 成功！请打开查看：{output_html}")
