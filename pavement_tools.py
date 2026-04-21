@@ -7,13 +7,67 @@ import matplotlib.pyplot as plt
 from scipy import signal
 
 
+# =====================================================================
+# 🛠️ 工具 1: 原始物理高程保真拼接 (专为 水膜、积水、3D宏观物理仿真 设计)
+# =====================================================================
+def get_raw_stitched_matrix(h5_path, num_blocks=10, target_width_m=None, dx_mm=100.0, fill_holes=True):
+    """
+    极简原始数据拼接函数：
+    不进行平面拟合、S型平滑、极值限幅等破坏原始高程尺度的操作。
+    完全保留路面的真实宏观排水坡度、车辙深度和微观纹理。
 
+    :param h5_path: H5 文件路径
+    :param num_blocks: 读取的块数
+    :param target_width_m: 目标裁剪宽度(米)，如果为None则保留全幅
+    :param dx_mm: 传感器的物理采样步长 (横向)
+    :param fill_holes: 是否用中位数填补传感器返回的 0 值死区
+    :return: 保持原始 Z 轴单位的 2D numpy 矩阵
+    """
+    with h5py.File(h5_path, 'r') as h5f:
+        group = h5f['road_segments']
+        names = sorted(list(group.keys()))[:num_blocks]
+
+        blocks = []
+        for name in names:
+            blocks.append(group[name][:])
+
+        if not blocks:
+            return None
+
+        # 1. 极其暴力的物理直接拼接，不进行任何融合模糊
+        raw_matrix = np.vstack(blocks)
+
+        # 2. 填补传感器未扫到的黑洞 (0值)
+        # 如果不填补，水膜算法中的雨水会全部流进这些深度为负无穷的黑洞中引发死循环
+        if fill_holes:
+            valid_mask = raw_matrix != 0
+            if np.any(valid_mask):
+                median_val = np.median(raw_matrix[valid_mask])
+                raw_matrix = np.where(raw_matrix == 0, median_val, raw_matrix)
+
+        # 3. 物理居中裁剪 (例如严格控制在 3.75m 单车道宽度内)
+        if target_width_m is not None:
+            total_pixels = raw_matrix.shape[1]
+            target_pixels = int(target_width_m * 1000 / dx_mm)
+
+            if target_pixels < total_pixels:
+                trim_pixels = (total_pixels - target_pixels) // 2
+                raw_matrix = raw_matrix[:, trim_pixels: trim_pixels + target_pixels]
+            elif target_pixels > total_pixels:
+                print(f"⚠️ 警告：原始数据宽度 ({total_pixels}列) 小于目标宽度 ({target_width_m}m)，跳过裁剪。")
+
+        return raw_matrix
+
+
+# =====================================================================
+# 🛠️ 工具 2: 高精度平滑降噪拼接 (专为 功率谱PSD、粗糙度RMS、频域分析 设计)
+# =====================================================================
 def get_perfect_stitched_matrix(h5_path, num_blocks=10, correction_angle=0, overlap_rows=8, crop_edge_ratio=0,
                                 max_std=15.0):
     """
-    1. 鲁棒抗噪平面拟合 (免疫飞点干扰)
-    2. 孤岛飞点软压制
-    3. 严格限幅 (约束在 0.08 色度条范围内)
+    1. 鲁棒抗噪平面拟合 (去趋势，拉平路面，免疫飞点干扰)
+    2. S 型曲线行重叠平滑融合
+    3. 孤岛飞点软压制与严格限幅
     """
     with h5py.File(h5_path, 'r') as h5f:
         group = h5f['road_segments']
@@ -34,7 +88,7 @@ def get_perfect_stitched_matrix(h5_path, num_blocks=10, correction_angle=0, over
                 continue
 
             # ========================================================
-            # 鲁棒二维平面拟合 (Robust 2D Detrending)
+            # 鲁棒二维平面拟合 (Robust 2D Detrending) - 拉平宏观坡度
             # ========================================================
             Y, X = np.indices(data.shape)
             x_val = X[valid_mask]
@@ -115,13 +169,15 @@ def get_perfect_stitched_matrix(h5_path, num_blocks=10, correction_angle=0, over
     if len(valid_points) > 0:
         zz[zz != 0] = zz[zz != 0] - np.median(valid_points)
 
-        # 使用 0.1% 和 99.9% 动态算出这块路面真实的极限范围，而不是写死 0.04
         z_min, z_max = np.percentile(valid_points, [0.1, 99.9])
         zz = np.clip(zz, z_min, z_max)
 
     return zz
 
 
+# =====================================================================
+# 🛠️ 工具 3: 辅助轮迹带定位绘图器
+# =====================================================================
 def explore_transverse_wear_profile(master_matrix, dx_mm=100):
     """
     横向微观粗糙度扫描器：用于可视化定位轮迹带的像素位置。
@@ -161,7 +217,6 @@ def explore_transverse_wear_profile(master_matrix, dx_mm=100):
     ax1.tick_params(axis='y', labelcolor='#E63946')
     ax1.grid(True, linestyle='--', alpha=0.5)
 
-    # 添加顶部物理宽度副坐标轴，方便直观感受几米宽
     ax2 = ax1.twiny()
     ax2.set_xlim(ax1.get_xlim())
     ax2.set_xticks(ax1.get_xticks())
@@ -182,39 +237,14 @@ def explore_transverse_wear_profile(master_matrix, dx_mm=100):
 
 
 # ==========================================
-# 🚀 运行与渲染测试
+# 🚀 测试运行模块
 # ==========================================
 if __name__ == "__main__":
     h5_file = 'data/PavementDatabase.h5'
-    angle_to_fix = 1.35
 
-    print(f"⏳ 正在执行路面拼接...")
+    # 测试新加入的 Raw 函数
+    print("⏳ 测试加载物理保真(RAW)矩阵...")
+    raw_matrix = get_raw_stitched_matrix(h5_file, num_blocks=20, target_width_m=3.75, dx_mm=100.0)
 
-    matrix_fixed = get_perfect_stitched_matrix(
-        h5_path=h5_file,
-        num_blocks=200,
-        correction_angle=angle_to_fix,
-        overlap_rows=8,
-        crop_edge_ratio=0.13,
-        max_std=15.0
-    )
-
-    # 创建高质量 3D 渲染图
-    fig = go.Figure()
-
-    fig.add_trace(go.Surface(
-        z=matrix_fixed,
-        colorscale='Viridis',
-        showscale=True,
-        colorbar=dict(title="微观起伏(mm)")
-    ))
-
-    fig.update_layout(
-        title=f"路表真实微观磨损提取",
-        scene=dict(aspectmode='data'),
-        height=800, width=1200
-    )
-
-    output_html = "高精度真实微观磨损_测试.html"
-    fig.write_html(output_html)
-    print(f"🎉 成功！拍摄噪点已被隔离：{output_html}")
+    if raw_matrix is not None:
+        print(f"✅ 获取 RAW 矩阵成功！形状: {raw_matrix.shape}，高度跨度: {np.max(raw_matrix) - np.min(raw_matrix):.2f}")
