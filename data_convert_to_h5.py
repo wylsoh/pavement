@@ -67,10 +67,9 @@ def convert_mat_to_h5(src_folder, h5_filepath):
 
 
 if __name__ == "__main__":
-    # 你的源文件夹路径
+    # 源文件夹路径
     source_dir = 'data/mat2'
-
-    # 你想生成的 .h5 文件的保存路径及名字
+    # h5文件的保存路径
     output_h5 = 'data/PavementDatabase.h5'
 
     convert_mat_to_h5(source_dir, output_h5)
