@@ -2,9 +2,11 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
+import pandas as pd  # ⚠️ 新增引入 pandas 用于生成表格
 import time
 import os
 import h5py
+from datetime import datetime
 from scipy.ndimage import label, generate_binary_structure, binary_dilation
 from scipy.ndimage import zoom
 
@@ -130,12 +132,14 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
 
     x_dm = np.arange(matrix.shape[1]) * (dx_mm / 100.0)
     y_dm = np.arange(matrix.shape[0]) * (dx_mm / 100.0)
-    z_m = matrix / 1000.0
+
+    # 🌟 修改 1: 取消 / 1000.0，直接保留毫米 (mm) 单位
+    z_mm = matrix
 
     fig = go.Figure()
 
     fig.add_trace(go.Surface(
-        z=z_m, x=x_dm, y=y_dm,
+        z=z_mm, x=x_dm, y=y_dm,
         colorscale='Portland', name='路表高程', showscale=False,
         contours=dict(
             x=dict(show=True, color='black', width=1, start=x_dm[0], end=x_dm[-1], size=dx_mm / 100.0),
@@ -144,8 +148,9 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
     ))
 
     if water_surf is not None and water_depth is not None:
-        water_surf_m = water_surf / 1000.0
-        water_only = np.where(water_depth > 1e-4, water_surf_m, np.nan)
+        # 🌟 修改 1: 水面高度也直接使用毫米单位
+        water_surf_mm = water_surf
+        water_only = np.where(water_depth > 1e-4, water_surf_mm, np.nan)
 
         if not np.all(np.isnan(water_only)):
             fig.add_trace(go.Surface(
@@ -158,19 +163,19 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
     x_physical_length = x_dm[-1] - x_dm[0]
     y_physical_length = y_dm[-1] - y_dm[0]
 
-    # 以 X 轴的视觉长度 1 为基准，计算 Y 轴应该呈现多长
-    # 比如 X 宽 3.75m，Y 长 10m，那么在屏幕上 Y 的视觉长度就是 X 的约 2.66 倍
     true_y_ratio = y_physical_length / x_physical_length if x_physical_length > 0 else 1
 
     fig.update_layout(
         scene=dict(
             xaxis_title='车道宽度(dm)',
             yaxis_title='路线长度(dm)',
-            zaxis_title='路表高程(m)',
+            zaxis_title='路表高程(mm)',  # 🌟 修改 1: 更新轴标签
             aspectmode='manual',
-            # 长宽严格锁定真实比例，Z轴固定高度放大（比如 0.4）方便观察水流
             aspectratio=dict(x=1, y=true_y_ratio, z=0.5),
-            camera=dict(eye=dict(x=1.8, y=-1.8, z=1.3))
+
+            # 🌟 修改 2: 将 eye 的绝对数值调小 (原为 x=1.8, y=-1.8, z=1.3)
+            # x 和 y 控制水平方位的远近，z 控制俯视高度。你可以继续微调这三个值！
+            camera=dict(eye=dict(x=1.0, y=-1.0, z=0.7))
         ),
         margin=dict(l=0, r=0, b=0, t=30),
         height=600,
@@ -183,24 +188,21 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
 # ==========================================
 # 核心物理推演引擎 (升级版：8连通异形坑洼全捕捉)
 # ==========================================
-def simulate_water_film_with_low_wall(data0, shuimo_h, wall_margin):
+def simulate_water_film_with_low_wall(data0, shuimo_h, wall_margin, max_h_step=0.05):
     m, n = data0.shape
     wall_height = np.max(data0) + wall_margin
     qy = np.pad(data0, pad_width=1, mode='constant', constant_values=wall_height)
 
     V = shuimo_h * m * n
 
-    # 🌟 核心修复 1：从 4 连通升级为 8 连通 (米字型拓扑)
     # 这让连通域和边缘膨胀都能识别对角线水流，完美捕捉斜向车辙和异形坑
     structure = generate_binary_structure(2, 2)
 
     iteration = 0
-    max_h_step = 0.05
 
     while V > 1e-6:
         iteration += 1
 
-        # 🌟 核心修复 2：全方位 8 邻域探针
         top = qy[:-2, 1:-1]
         bottom = qy[2:, 1:-1]
         left = qy[1:-1, :-2]
@@ -266,6 +268,7 @@ def simulate_water_film_with_low_wall(data0, shuimo_h, wall_margin):
     water_depth = water_surface - data0
     water_depth[water_depth < 1e-4] = 0
     return water_surface, water_depth
+
 
 def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
     profile_orig = matrix[row_idx, :]
@@ -342,8 +345,11 @@ with st.sidebar:
     st.header("⚙️ 第二步：动态水膜仿真")
     target_rainfall = st.slider("目标总降雨量 (mm)", 0.0, 50.0, 10.0, step=0.5)
     wall_margin = st.slider("边缘挡水墙裕量 (mm)", -10.0, 20.0, 2.0, step=0.5)
-    anim_frames = st.slider("仿真动画帧数 (分解步数)", 3, 10, 5)
-
+    anim_frames = st.slider("仿真动画帧数 (分解步数)", 1, 10, 5)
+    max_h_step = st.slider("单次最大水位爬升步长(mm)", 0.0, 0.1, 0.02, step=0.01)
+    st.divider()
+    st.header("💾 3. 日志存储设置")
+    log_dir = st.text_input("本地日志存储路径", value="./logs", help="建议使用绝对路径, 例如: D:/WaterFilmLogs")
     btn_run_sim = st.button("🌊 2. 开始动态降雨推演", type="primary", use_container_width=True,
                             disabled=not st.session_state.road_loaded)
 
@@ -416,6 +422,9 @@ if btn_run_sim and st.session_state.road_loaded:
     status_text = st.empty()
     final_depth_crop = None
 
+    # ====== 新增：记录仿真数据的列表 ======
+    simulation_history = []
+
     for step in range(1, anim_frames + 1):
         current_rain = target_rainfall * (step / anim_frames)
         status_text.text(f"正在进行流体力学演算... 阶段 {step}/{anim_frames} (雨量: {current_rain:.1f}mm)")
@@ -424,9 +433,20 @@ if btn_run_sim and st.session_state.road_loaded:
         surf_crop, depth_crop = simulate_water_film_with_low_wall(
             fine_matrix_crop,
             current_rain / 1000.0,
-            wall_margin
+            wall_margin,
+            max_h_step
         )
         final_depth_crop = depth_crop
+
+        # 记录每一阶段的数据
+        coverage = (np.count_nonzero(depth_crop) / depth_crop.size) * 100
+        simulation_history.append({
+            "降雨阶段": f"{step}/{anim_frames}",
+            "当前降雨量 (mm)": round(current_rain, 2),
+            "最大积水深度 (mm)": round(np.max(depth_crop), 2),
+            "平均积水深度 (mm)": round(np.mean(depth_crop), 2),
+            "积水覆盖率 (%)": f"{coverage:.2f}%"
+        })
 
         with metrics_container.container():
             c1, c2, c3, c4 = st.columns(4)
@@ -451,7 +471,40 @@ if btn_run_sim and st.session_state.road_loaded:
 
     status_text.success(f"✅ 物理推演完成！最终降雨量达到 {target_rainfall} mm。")
 
-    report_csv = f"目标降雨量,{target_rainfall}\n最大水深,{np.max(final_depth_crop):.2f}\n平均水深,{np.mean(final_depth_crop):.2f}\n覆盖率,{(np.count_nonzero(final_depth_crop) / final_depth_crop.size) * 100:.2f}%\n"
+    # ====== 🌟 新增：后台自动存储日志逻辑 ======
+    try:
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
+        log_file_path = os.path.join(log_dir, "simulation_logs.txt")
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # 构建精简版日志结构
+        log_lines = [
+            f"--- 记录时间: {timestamp} ---\n",
+            f"参数设置 -> 目标降雨量: {target_rain} mm | 单次爬升步长: {max_h_step} mm | 挡水墙裕量: {wall_margin} mm | 插值倍数: {zoom_val} | 仿真步数: {anim_frames}\n",
+            "执行结果:\n"
+        ]
+
+        for item in simulation_history:
+            log_lines.append(
+                f"  [{item['降雨阶段']}] 雨量: {item['目标降雨量 (mm)']:>5.2f} mm | "
+                f"最大水深: {item['最大水深 (mm)']:>5.2f} mm | "
+                f"平均水深: {item['平均水深 (mm)']:>5.2f} mm | "
+                f"覆盖率: {item['覆盖率 (%)']}\n"
+            )
+        log_lines.append("\n")  # 添加空行分隔每次任务
+
+        with open(log_file_path, "a", encoding="utf-8") as f:
+            f.writelines(log_lines)
+
+        st.toast(f"📄 日志已自动保存至: {log_file_path}")
+
+    except Exception as e:
+        st.error(f"❌ 自动保存日志失败，请检查路径权限: {e}")
+
+    # ====== 纯净版的前端表格展示 ======
     with export_container:
-        st.download_button("📥 导出推演评估报告 (CSV)", data=report_csv.encode('utf-8-sig'),
-                           file_name=f"water_film_sim_{target_rainfall}mm.csv", mime="text/csv", type="primary")
+        st.markdown("### 📊 动态降雨过程数据详情")
+        df_history = pd.DataFrame(simulation_history)
+        st.dataframe(df_history, use_container_width=True)
