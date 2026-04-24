@@ -5,13 +5,15 @@ import matplotlib.pyplot as plt
 import pandas as pd  # ⚠️ 新增引入 pandas 用于生成表格
 import time
 import os
+import io
 import h5py
 from datetime import datetime
 from scipy.ndimage import label, generate_binary_structure, binary_dilation
 from scipy.ndimage import zoom
+import streamlit as st
 
 
-plt.rcParams['font.sans-serif'] = ['simsun']
+plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
 plt.rcParams['axes.unicode_minus'] = False
 np.set_printoptions(suppress=True)
 
@@ -33,6 +35,7 @@ if 'target_cols' not in st.session_state:
     st.session_state.target_cols = 0
 if 'coverage_history' not in st.session_state:
     st.session_state.coverage_history = {}
+
 
 st.title("🌧️ 路表降雨水膜动态物理推演系统")
 st.markdown("支持点云高程去零裁剪、任意路段指定检视、以及分步动态降雨堆积演示。")
@@ -148,7 +151,7 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
     ))
 
     if water_surf is not None and water_depth is not None:
-        # 🌟 修改 1: 水面高度也直接使用毫米单位
+        # 水面高度也直接使用毫米单位
         water_surf_mm = water_surf
         water_only = np.where(water_depth > 1e-4, water_surf_mm, np.nan)
 
@@ -169,17 +172,22 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
         scene=dict(
             xaxis_title='车道宽度(dm)',
             yaxis_title='路线长度(dm)',
-            zaxis_title='路表高程(mm)',  # 🌟 修改 1: 更新轴标签
+            zaxis_title='路表高程(mm)',  # 更新轴标签
             aspectmode='manual',
             aspectratio=dict(x=1, y=true_y_ratio, z=0.5),
 
-            # 🌟 修改 2: 将 eye 的绝对数值调小 (原为 x=1.8, y=-1.8, z=1.3)
-            # x 和 y 控制水平方位的远近，z 控制俯视高度。你可以继续微调这三个值！
-            camera=dict(eye=dict(x=1.0, y=-1.0, z=0.7))
+            # x 和 y 控制水平方位的远近，z 控制俯视高度
+            camera=dict(eye=dict(x=0.9, y=-0.9, z=0.8))
         ),
         margin=dict(l=0, r=0, b=0, t=30),
         height=600,
-        plot_bgcolor='white'
+        plot_bgcolor='white',
+
+        font=dict(
+            family="微软雅黑, Arial, sans-serif",  # 字体系列，按顺序回退
+            size=15,  # 全局字号大小
+            color="#333333"  # 字体颜色
+        )
     )
 
     return fig
@@ -275,7 +283,7 @@ def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
     profile_water = water_surf[row_idx, :] if water_surf is not None else profile_orig
     x_m = np.arange(len(profile_orig)) * (dx_mm / 1000.0)
 
-    fig, ax = plt.subplots(figsize=(10, 4), facecolor='white')
+    fig, ax = plt.subplots(figsize=(10, 4), dpi=300, facecolor='white')
     if water_surf is not None:
         ax.fill_between(x_m, profile_orig, profile_water, color='#00a8ff', alpha=0.6, label='积水区域')
         ax.plot(x_m, profile_water, color='#0097e6', linewidth=1, linestyle='--')
@@ -285,7 +293,16 @@ def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
     ax.set_xlabel('横向物理宽度 (米)')
     ax.set_ylabel('高程 (mm)')
     ax.grid(True, linestyle='--', alpha=0.5)
-    ax.legend(loc='upper right')
+    ax.legend(loc='upper right', fontsize=13)
+    ax.tick_params(axis='both', which='major', labelsize=13)
+    ax.set_title(
+        f'中心车道横截面状态 (纵向位置: {row_idx * dx_mm / 1000.0:.1f}m)',
+        fontsize=16,  # 放大标题字号
+        fontweight='bold',  # 加粗
+        fontfamily='simhei'  # 单独为标题设置黑体 (需系统支持)
+    )
+    ax.set_xlabel('横向物理宽度 (米)', fontsize=14)
+    ax.set_ylabel('高程 (mm)', fontsize=14)
     fig.tight_layout()
     return fig
 
@@ -353,12 +370,30 @@ with st.sidebar:
     btn_run_sim = st.button("🌊 2. 开始动态降雨推演", type="primary", use_container_width=True,
                             disabled=not st.session_state.road_loaded)
 
+
+# ==========================================
+# 🌟 新增：强制居中的自定义指标卡片渲染函数
+# ==========================================
+def render_centered_metric(col_obj, title, value, delta=""):
+    # 如果有增量(delta)，显示绿色小字；否则用空 div 占位保证高度一致
+    delta_html = f"<div style='color: #09ab3b; font-size: 14px; margin-top: 2px;'>{delta}</div>" if delta else "<div style='height: 21px;'></div>"
+
+    html_content = f"""
+    <div style="text-align: center; font-family: 'Microsoft YaHei', sans-serif; padding: 10px 0;">
+        <div style="font-size: 14px; color: #555; margin-bottom: 4px;">{title}</div>
+        <div style="font-size: 28px; font-weight: bold; color: #212529; line-height: 1.2;">{value}</div>
+        {delta_html}
+    </div>
+    """
+    # 使用 markdown 原生渲染 HTML
+    col_obj.markdown(html_content, unsafe_allow_html=True)
+
 # ==========================================
 # 主界面逻辑处理
 # ==========================================
 st.divider()
 
-col_left, col_right = st.columns([3, 2])
+col_left, col_right = st.columns([1, 1])
 with col_left:
     st.subheader("🧊 三维空间水膜演化")
     plot3d_container = st.empty()
@@ -374,14 +409,16 @@ export_container = st.empty()
 if not st.session_state.road_loaded:
     with metrics_container.container():
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("当前降雨进度", "-- mm")
-        c2.metric("最大积水深度", "-- mm")
-        c3.metric("积水覆盖率", "-- %")
-        c4.metric("地形最大高差", "-- mm")
+        render_centered_metric(c1, "当前降雨进度", "-- mm")
+        render_centered_metric(c2, "最大积水深度", "-- mm")
+        render_centered_metric(c3, "积水覆盖率", "-- %")
+        render_centered_metric(c4, "地形最大高差", "-- mm")
 
     fig_empty = go.Figure().update_layout(title="请先在左侧配置并解析路面地形...",
                                           scene=dict(aspectmode='manual', aspectratio=dict(x=1, y=2.5, z=0.5)),
-                                          height=500)
+                                          margin=dict(l=0, r=0, b=0, t=30),
+                                          autosize=True,
+                                          plot_bgcolor='white')
     plot3d_container.plotly_chart(fig_empty, use_container_width=True)
 
     fig_empty_2d, ax = plt.subplots(figsize=(10, 4))
@@ -395,15 +432,20 @@ elif st.session_state.road_loaded and not btn_run_sim:
     matrix_crop = st.session_state.matrix_crop
     with metrics_container.container():
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("当前降雨进度", "0.0 mm")
-        c2.metric("最大积水深度", "0.00 mm")
-        c3.metric("积水覆盖率", "0.0 %")
-        c4.metric("地形最大高差", f"{np.max(matrix_crop) - np.min(matrix_crop):.1f} mm")
+        render_centered_metric(c1, "当前降雨进度", "0.0 mm")
+        render_centered_metric(c2, "最大积水深度", "0.00 mm")
+        render_centered_metric(c3, "积水覆盖率", "0.0 %")
+        render_centered_metric(c4, "地形最大高差", f"{np.max(matrix_crop) - np.min(matrix_crop):.1f} mm")
 
     plot3d_container.plotly_chart(create_3d_figure(matrix_crop, dx_mm=dx_mm), use_container_width=True)
     row_i = min(int(matrix_crop.shape[0] / 2), matrix_crop.shape[0] - 1)
-    plot2d_container.pyplot(plot_2d_cross_section(matrix_crop, None, dx_mm, row_idx=row_i))
-
+    # plot2d_container.pyplot(plot_2d_cross_section(matrix_crop, None, dx_mm, row_idx=row_i))
+    # 🌟 替换为 SVG 渲染模式
+    fig_2d = plot_2d_cross_section(matrix_crop, None, dx_mm, row_idx=row_i)
+    buf = io.BytesIO()
+    fig_2d.savefig(buf, format="svg", bbox_inches="tight")
+    plot2d_container.image(buf.getvalue().decode("utf-8"), use_container_width=True)
+    plt.close(fig_2d)
 # ------------------------------------------
 # 动作 2: 执行动态降雨动画
 # ------------------------------------------
@@ -453,10 +495,11 @@ if btn_run_sim and st.session_state.road_loaded:
 
         with metrics_container.container():
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("当前降雨进度", f"{current_rain:.1f} mm", delta=f"+{target_rainfall / anim_frames:.1f} mm")
-            c2.metric("最大积水深度", f"{np.max(depth_crop):.2f} mm")
-            c3.metric("积水覆盖率", f"{(np.count_nonzero(depth_crop) / depth_crop.size) * 100:.1f} %")
-            c4.metric("地形最大高差", f"{np.max(matrix_crop) - np.min(matrix_crop):.1f} mm")
+            render_centered_metric(c1, "当前降雨进度", f"{current_rain:.1f} mm",
+                                   delta=f"↑ {target_rainfall / anim_frames:.1f} mm")
+            render_centered_metric(c2, "最大积水深度", f"{np.max(depth_crop):.2f} mm")
+            render_centered_metric(c3, "积水覆盖率", f"{(np.count_nonzero(depth_crop) / depth_crop.size) * 100:.1f} %")
+            render_centered_metric(c4, "地形最大高差", f"{np.max(matrix_crop) - np.min(matrix_crop):.1f} mm")
 
         # 3. 维度对齐与 Key 标识
         plot3d_container.plotly_chart(
@@ -467,7 +510,13 @@ if btn_run_sim and st.session_state.road_loaded:
 
         # 2D 图也需要使用 fine 矩阵以保证横坐标点数匹配
         row_i = int(fine_matrix_crop.shape[0] / 2)
-        plot2d_container.pyplot(plot_2d_cross_section(fine_matrix_crop, surf_crop, fine_dx_mm, row_idx=row_i))
+        # plot2d_container.pyplot(plot_2d_cross_section(fine_matrix_crop, surf_crop, fine_dx_mm, row_idx=row_i))
+        # 🌟 替换为 SVG 渲染模式
+        fig_2d_sim = plot_2d_cross_section(fine_matrix_crop, surf_crop, fine_dx_mm, row_idx=row_i)
+        buf_sim = io.BytesIO()
+        fig_2d_sim.savefig(buf_sim, format="svg", bbox_inches="tight")
+        plot2d_container.image(buf_sim.getvalue().decode("utf-8"), use_container_width=True)
+        plt.close(fig_2d_sim)
 
         progress_bar.progress(step / anim_frames)
         time.sleep(0.05)
@@ -550,9 +599,14 @@ if st.session_state.road_loaded:
                 yaxis_title="路面积水覆盖率 (%)",
                 height=350,
                 margin=dict(l=0, r=0, t=30, b=0),
-                plot_bgcolor='white',
-                xaxis=dict(showgrid=True, gridcolor='#f1f2f6', zeroline=False),
-                yaxis=dict(showgrid=True, gridcolor='#f1f2f6', zeroline=False, rangemode='tozero')
+                plot_bgcolor='#f0f2f6',
+                xaxis=dict(showgrid=True, gridcolor='white', zeroline=False),
+                yaxis=dict(showgrid=True, gridcolor='white', zeroline=False, rangemode='tozero'),
+                font=dict(
+                    family="微软雅黑, Arial",
+                    size=16,
+                    color="black"
+                ),
             )
             st.plotly_chart(fig_trend, use_container_width=True)
         else:
