@@ -323,11 +323,13 @@ with st.sidebar:
     wall_margin = st.slider("边缘挡水墙裕量 (mm)", -10.0, 20.0, 2.0, step=0.5)
     anim_frames = st.slider("仿真动画帧数 (分解步数)", 1, 10, 5)
     max_h_step = st.slider("单次最大水位爬升步长(mm)", 0.0, 0.1, 0.02, step=0.01)
-    st.divider()
-    st.header("💾 3. 日志存储设置")
-    log_dir = st.text_input("本地日志存储路径", value="./logs", help="建议使用绝对路径, 例如: D:/WaterFilmLogs")
     btn_run_sim = st.button("🌊 2. 开始动态降雨推演", type="primary", use_container_width=True,
                             disabled=not st.session_state.road_loaded)
+    st.divider()
+    st.header("💾 日志存储设置")
+    log_dir = st.text_input("本地日志存储路径", value="./logs", help="建议使用绝对路径, 例如: D:/WaterFilmLogs")
+
+
 
 
 # ==========================================
