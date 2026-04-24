@@ -319,8 +319,16 @@ with st.sidebar:
 
     st.divider()
     st.header("⚙️ 第二步：动态水膜仿真")
-    target_rainfall = st.slider("目标总降雨量 (mm)", 0.0, 50.0, 10.0, step=0.5)
-    wall_margin = st.slider("边缘挡水墙裕量 (mm)", -10.0, 20.0, 2.0, step=0.5)
+    target_rainfall = st.slider("目标总降雨量 (mm)", 0.0, 20.0, 10.0, step=0.5)
+    runoff_coefficient = st.slider(
+        "路面径流滞留系数 (排水折减)",
+        min_value=0.01,
+        max_value=1.00,
+        value=0.15,
+        step=0.01,
+        help="模拟路面横纵坡的排水能力。1.0表示无排水（变死水潭），0.15表示85%的雨水被排走，仅15%滞留在车辙与构造中。"
+    )
+    wall_margin = st.slider("边缘挡水墙裕量 (mm)", 0.0, 2.0, 1.0, step=0.5)
     anim_frames = st.slider("仿真动画帧数 (分解步数)", 1, 10, 5)
     max_h_step = st.slider("单次最大水位爬升步长(mm)", 0.0, 0.1, 0.02, step=0.01)
     btn_run_sim = st.button("🌊 2. 开始动态降雨推演", type="primary", use_container_width=True,
@@ -384,7 +392,7 @@ if not st.session_state.road_loaded:
     plot2d_container.pyplot(fig_empty_2d)
 
 # ------------------------------------------
-# 状态 2：执行动态推演动画 (用户点击了开始推演)
+# 状态 2：执行动态降雨推演动画 (用户点击了开始推演)
 # ------------------------------------------
 elif btn_run_sim and st.session_state.road_loaded:
     # 每次运行新推演，清空上一次的风险评估缓存
@@ -403,25 +411,34 @@ elif btn_run_sim and st.session_state.road_loaded:
     final_depth_crop = None
     simulation_history = []
 
-    # 【新增】推演过程中产生的临时最终水面，用于跳出循环后保存
+    # 推演过程中产生的临时最终水面，用于跳出循环后保存
     final_surf_crop = None
 
     for step in range(1, anim_frames + 1):
         current_rain = target_rainfall * (step / anim_frames)
         status_text.text(f"正在进行流体力学演算... 阶段 {step}/{anim_frames} (雨量: {current_rain:.1f}mm)")
 
+        effective_rain_m = (current_rain * runoff_coefficient) / 1000.0
+
         surf_crop, depth_crop = simulate_water_film_with_low_wall(
-            fine_matrix_crop, current_rain / 1000.0, wall_margin / 1000.0, max_h_step / 1000.0
+            fine_matrix_crop,
+            effective_rain_m,
+            wall_margin / 1000.0,
+            max_h_step / 1000.0
         )
         final_depth_crop = depth_crop
         final_surf_crop = surf_crop
 
-        coverage = (np.count_nonzero(depth_crop) / depth_crop.size) * 100
+        area_ratio = st.session_state.matrix_full.shape[1] / st.session_state.matrix_crop.shape[1]
+        theoretical_total_size = depth_crop.size * area_ratio  # 还原真实总面积
+
+        coverage = (np.count_nonzero(depth_crop) / theoretical_total_size) * 100
         st.session_state.coverage_history[round(current_rain, 2)] = coverage
 
         simulation_history.append({
             "降雨阶段": f"{step}/{anim_frames}",
             "当前降雨量 (mm)": round(current_rain, 2),
+            "有效滞留水深 (mm)": round(current_rain * runoff_coefficient, 2),
             "最大积水深度 (mm)": round(np.max(depth_crop) * 1000.0, 2),
             "平均积水深度 (mm)": round(np.mean(depth_crop) * 1000.0, 2),
             "积水覆盖率 (%)": f"{coverage:.2f}%"
@@ -581,7 +598,9 @@ if st.session_state.final_depth_crop is not None:
         water_depth = st.session_state.final_depth_crop
         with st.spinner("⏳ 正在结合水膜厚度与车速分布计算全域滑水概率..."):
             prob_matrix, risk_level_matrix, risk_score_matrix = evaluate_hydroplaning_risk(water_depth * 1000.0)
-            decision = dynamic_decision_making(risk_level_matrix)
+
+            area_ratio = st.session_state.matrix_full.shape[1] / st.session_state.matrix_crop.shape[1]
+            decision = dynamic_decision_making(risk_level_matrix, area_ratio)
 
             st.session_state.risk_results = {
                 "decision": decision,
