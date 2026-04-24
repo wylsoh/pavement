@@ -10,8 +10,6 @@ from datetime import datetime
 from scipy.ndimage import label, generate_binary_structure, binary_dilation
 from scipy.ndimage import zoom
 
-# ⚠️ 注意：需要在文件开头的 import 区域补上这一句：
-from scipy.ndimage import median_filter
 
 plt.rcParams['font.sans-serif'] = ['simsun']
 plt.rcParams['axes.unicode_minus'] = False
@@ -33,6 +31,8 @@ if 'trim_cols' not in st.session_state:
     st.session_state.trim_cols = 0
 if 'target_cols' not in st.session_state:
     st.session_state.target_cols = 0
+if 'coverage_history' not in st.session_state:
+    st.session_state.coverage_history = {}
 
 st.title("🌧️ 路表降雨水膜动态物理推演系统")
 st.markdown("支持点云高程去零裁剪、任意路段指定检视、以及分步动态降雨堆积演示。")
@@ -365,8 +365,8 @@ with col_left:
 with col_right:
     st.subheader("📈 典型横截面 (二维波谷填充)")
     plot2d_container = st.empty()
+    metrics_container = st.empty()
 
-metrics_container = st.empty()
 export_container = st.empty()
 
 # 缺省骨架渲染
@@ -440,6 +440,9 @@ if btn_run_sim and st.session_state.road_loaded:
 
         # 记录每一阶段的数据
         coverage = (np.count_nonzero(depth_crop) / depth_crop.size) * 100
+
+        st.session_state.coverage_history[round(current_rain, 2)] = coverage
+
         simulation_history.append({
             "降雨阶段": f"{step}/{anim_frames}",
             "当前降雨量 (mm)": round(current_rain, 2),
@@ -471,7 +474,10 @@ if btn_run_sim and st.session_state.road_loaded:
 
     status_text.success(f"✅ 物理推演完成！最终降雨量达到 {target_rainfall} mm。")
 
-    # ====== 🌟 新增：后台自动存储日志逻辑 ======
+    final_coverage = (np.count_nonzero(final_depth_crop) / final_depth_crop.size) * 100
+    st.session_state.coverage_history[target_rainfall] = final_coverage
+
+    # ====== 后台自动存储日志逻辑 ======
     try:
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
@@ -482,7 +488,7 @@ if btn_run_sim and st.session_state.road_loaded:
         # 构建精简版日志结构
         log_lines = [
             f"--- 记录时间: {timestamp} ---\n",
-            f"参数设置 -> 目标降雨量: {target_rain} mm | 单次爬升步长: {max_h_step} mm | 挡水墙裕量: {wall_margin} mm | 插值倍数: {zoom_val} | 仿真步数: {anim_frames}\n",
+            f"参数设置 -> 目标降雨量: {target_rainfall} mm | 单次爬升步长: {max_h_step} mm | 挡水墙裕量: {wall_margin} mm | 仿真步数: {anim_frames}\n",
             "执行结果:\n"
         ]
 
@@ -508,3 +514,46 @@ if btn_run_sim and st.session_state.road_loaded:
         st.markdown("### 📊 动态降雨过程数据详情")
         df_history = pd.DataFrame(simulation_history)
         st.dataframe(df_history, use_container_width=True)
+
+# ==========================================
+# 统计分析区
+# ==========================================
+if st.session_state.road_loaded:
+    st.divider()
+    st.subheader("📈 积水覆盖率随总降雨量变化趋势")
+
+    col_chart, col_btn = st.columns([6, 1])
+
+    with col_btn:
+        st.write("")
+        st.write("")
+        if st.button("🗑️ 清空趋势图表", use_container_width=True):
+            st.session_state.coverage_history = {}
+            st.rerun()
+
+    with col_chart:
+        if st.session_state.coverage_history:
+            sorted_rains = sorted(st.session_state.coverage_history.keys())
+            sorted_coverages = [st.session_state.coverage_history[rain] for rain in sorted_rains]
+
+            fig_trend = go.Figure()
+            fig_trend.add_trace(go.Scatter(
+                x=sorted_rains,
+                y=sorted_coverages,
+                mode='lines+markers',
+                line=dict(color='#ff4757', width=3),
+                marker=dict(size=10, color='#ffffff', line=dict(width=2, color='#ff4757'))
+            ))
+
+            fig_trend.update_layout(
+                xaxis_title="设定的总降雨量 (mm)",
+                yaxis_title="路面积水覆盖率 (%)",
+                height=350,
+                margin=dict(l=0, r=0, t=30, b=0),
+                plot_bgcolor='white',
+                xaxis=dict(showgrid=True, gridcolor='#f1f2f6', zeroline=False),
+                yaxis=dict(showgrid=True, gridcolor='#f1f2f6', zeroline=False, rangemode='tozero')
+            )
+            st.plotly_chart(fig_trend, use_container_width=True)
+        else:
+            st.info("💡 暂无历史趋势数据。请在左侧设定不同的降雨量并执行推演，即可在此处自动生成趋势图。")
