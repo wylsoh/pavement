@@ -35,8 +35,6 @@ if 'target_cols' not in st.session_state:
     st.session_state.target_cols = 0
 if 'coverage_history' not in st.session_state:
     st.session_state.coverage_history = {}
-
-# 【新增】为UI持久化增加的缓存变量
 if 'final_depth_crop' not in st.session_state:
     st.session_state.final_depth_crop = None
 if 'fine_matrix_crop' not in st.session_state:
@@ -48,7 +46,7 @@ if 'fine_dx_mm' not in st.session_state:
 if 'simulation_history' not in st.session_state:
     st.session_state.simulation_history = None
 if 'last_target_rainfall' not in st.session_state:
-    st.session_state.last_target_rainfall = None
+    st.session_state.last_target_rainfall = 0.0
 if 'risk_results' not in st.session_state:
     st.session_state.risk_results = None
 
