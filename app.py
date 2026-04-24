@@ -11,7 +11,7 @@ from datetime import datetime
 from scipy.ndimage import label, generate_binary_structure, binary_dilation
 from scipy.ndimage import zoom
 from risk_assessment import evaluate_hydroplaning_risk, dynamic_decision_making, render_risk_heatmap
-
+from scipy.ndimage import median_filter
 
 
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
@@ -42,8 +42,6 @@ if 'final_depth_crop' not in st.session_state:
 
 st.title("🌧️ 路表降雨水膜动态物理推演系统")
 st.markdown("支持点云高程去零裁剪、任意路段指定检视、以及分步动态降雨堆积演示。")
-
-from scipy.ndimage import median_filter
 
 
 # ==========================================
@@ -131,7 +129,7 @@ def load_and_preprocess_h5(h5_path, start_segment, num_blocks, max_std=15.0, ove
 
 
 # ==========================================
-# 辅助渲染函数
+# 辅助渲染函数——图1三维空间水膜演化
 # ==========================================
 def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
     """生成 3D Plotly 图像 (严格还原长宽物理比例)"""
@@ -187,7 +185,7 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
         font=dict(
             family="微软雅黑, Arial, sans-serif",  # 字体系列，按顺序回退
             size=15,  # 全局字号大小
-            color="#333333"  # 字体颜色
+            color="#333333"
         )
     )
 
@@ -195,7 +193,7 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
 
 
 # ==========================================
-# 核心物理推演引擎
+# 核心物理推演引擎——模拟降雨
 # ==========================================
 def simulate_water_film_with_low_wall(data0, shuimo_h, wall_margin, max_h_step=0.05):
     m, n = data0.shape
@@ -278,7 +276,9 @@ def simulate_water_film_with_low_wall(data0, shuimo_h, wall_margin, max_h_step=0
     water_depth[water_depth < 1e-4] = 0
     return water_surface, water_depth
 
-
+# ==========================================
+# 横截面展示——图2典型横截面
+# ==========================================
 def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
     profile_orig = matrix[row_idx, :]
     profile_water = water_surf[row_idx, :] if water_surf is not None else profile_orig
@@ -440,13 +440,12 @@ elif st.session_state.road_loaded and not btn_run_sim:
 
     plot3d_container.plotly_chart(create_3d_figure(matrix_crop, dx_mm=dx_mm), use_container_width=True)
     row_i = min(int(matrix_crop.shape[0] / 2), matrix_crop.shape[0] - 1)
-    # plot2d_container.pyplot(plot_2d_cross_section(matrix_crop, None, dx_mm, row_idx=row_i))
-    # 替换为 SVG 渲染模式
     fig_2d = plot_2d_cross_section(matrix_crop, None, dx_mm, row_idx=row_i)
     buf = io.BytesIO()
     fig_2d.savefig(buf, format="svg", bbox_inches="tight")
     plot2d_container.image(buf.getvalue().decode("utf-8"), use_container_width=True)
     plt.close(fig_2d)
+
 # ------------------------------------------
 # 执行动态降雨动画
 # ------------------------------------------
@@ -486,7 +485,6 @@ if btn_run_sim and st.session_state.road_loaded:
 
         st.session_state.coverage_history[round(current_rain, 2)] = coverage
 
-        # 【单位修正】记录数据：将引擎输出的米(m) 乘以 1000 转回毫米(mm)
         simulation_history.append({
             "降雨阶段": f"{step}/{anim_frames}",
             "当前降雨量 (mm)": round(current_rain, 2),
@@ -499,10 +497,8 @@ if btn_run_sim and st.session_state.road_loaded:
             c1, c2, c3, c4 = st.columns(4)
             render_centered_metric(c1, "当前降雨进度", f"{current_rain:.1f} mm",
                                    delta=f"↑ {target_rainfall / anim_frames:.1f} mm")
-            # 【单位修正】UI 面板展示：将 m 乘以 1000 转换为 mm
             render_centered_metric(c2, "最大积水深度", f"{np.max(depth_crop) * 1000.0:.2f} mm")
             render_centered_metric(c3, "积水覆盖率", f"{(np.count_nonzero(depth_crop) / depth_crop.size) * 100:.1f} %")
-            # 【单位修正】UI 面板展示：将 m 乘以 1000 转换为 mm
             render_centered_metric(c4, "地形最大高差", f"{(np.max(matrix_crop) - np.min(matrix_crop)) * 1000.0:.1f} mm")
 
         # 3. 维度对齐与 Key 标识
@@ -545,7 +541,6 @@ if btn_run_sim and st.session_state.road_loaded:
             "执行结果:\n"
         ]
 
-        # 【Bug 修正】字典键值（Key）对齐，与 simulation_history 添加时保持一致
         for item in simulation_history:
             log_lines.append(
                 f"  [{item['降雨阶段']}] 雨量: {item['当前降雨量 (mm)']:>5.2f} mm | "
@@ -617,7 +612,9 @@ if st.session_state.road_loaded:
         else:
             st.info("💡 暂无历史趋势数据。请在左侧设定不同的降雨量并执行推演，即可在此处自动生成趋势图。")
 
-# 在 Streamlit 界面中新增一个专属的风险评估展示区
+# ==========================================
+# 风险评估展示区
+# ==========================================
 st.markdown("---")
 st.subheader("🚨 智能滑水风险评估与动态决策")
 
@@ -630,7 +627,7 @@ if st.session_state.final_depth_crop is not None:
         # 2. 生成动态决策报告
         decision = dynamic_decision_making(risk_level_matrix)
 
-    # 3. 使用 Streamlit 的列 (columns) 和指标 (metric) 组件美化报告输出
+    # 3. 报告输出
     col1, col2 = st.columns(2)
     with col1:
         # 根据整体风险状态改变颜色或提示框
@@ -647,8 +644,7 @@ if st.session_state.final_depth_crop is not None:
         st.info(f"**🚦 动态交通管控建议:** \n\n{decision['traffic_control']}")
         st.warning(f"**🛠️ 养护处治指导:** \n\n{decision['maintenance_action']}")
 
-    # 4. 在前端直接渲染 2D 风险热力图
+    # 4. 渲染 2D 风险热力图
     st.markdown("#### 面域级滑水风险图谱 (A级至E级)")
     risk_fig = render_risk_heatmap(risk_score_matrix)
-    # 使用 Streamlit 原生的 plotly 渲染组件展示图表
     st.plotly_chart(risk_fig, use_container_width=True)
