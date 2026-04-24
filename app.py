@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
-import pandas as pd  # ⚠️ 新增引入 pandas 用于生成表格
+import pandas as pd
 import time
 import os
 import io
@@ -10,7 +10,6 @@ import h5py
 from datetime import datetime
 from scipy.ndimage import label, generate_binary_structure, binary_dilation
 from scipy.ndimage import zoom
-import streamlit as st
 
 
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
@@ -44,7 +43,7 @@ from scipy.ndimage import median_filter
 
 
 # ==========================================
-# 核心数据读取与预处理函数 (带异常路段免疫与无缝拼接)
+# 核心数据读取与预处理函数
 # ==========================================
 def load_and_preprocess_h5(h5_path, start_segment, num_blocks, max_std=15.0, overlap_rows=8):
     with h5py.File(h5_path, 'r') as h5f:
@@ -136,7 +135,6 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
     x_dm = np.arange(matrix.shape[1]) * (dx_mm / 100.0)
     y_dm = np.arange(matrix.shape[0]) * (dx_mm / 100.0)
 
-    # 🌟 修改 1: 取消 / 1000.0，直接保留毫米 (mm) 单位
     z_mm = matrix
 
     fig = go.Figure()
@@ -151,7 +149,6 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
     ))
 
     if water_surf is not None and water_depth is not None:
-        # 水面高度也直接使用毫米单位
         water_surf_mm = water_surf
         water_only = np.where(water_depth > 1e-4, water_surf_mm, np.nan)
 
@@ -194,7 +191,7 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
 
 
 # ==========================================
-# 核心物理推演引擎 (升级版：8连通异形坑洼全捕捉)
+# 核心物理推演引擎
 # ==========================================
 def simulate_water_film_with_low_wall(data0, shuimo_h, wall_margin, max_h_step=0.05):
     m, n = data0.shape
@@ -203,7 +200,7 @@ def simulate_water_film_with_low_wall(data0, shuimo_h, wall_margin, max_h_step=0
 
     V = shuimo_h * m * n
 
-    # 这让连通域和边缘膨胀都能识别对角线水流，完美捕捉斜向车辙和异形坑
+    # 这让连通域和边缘膨胀都能识别对角线水流，捕捉斜向车辙和异形坑
     structure = generate_binary_structure(2, 2)
 
     iteration = 0
@@ -297,9 +294,9 @@ def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
     ax.tick_params(axis='both', which='major', labelsize=13)
     ax.set_title(
         f'中心车道横截面状态 (纵向位置: {row_idx * dx_mm / 1000.0:.1f}m)',
-        fontsize=16,  # 放大标题字号
-        fontweight='bold',  # 加粗
-        fontfamily='simhei'  # 单独为标题设置黑体 (需系统支持)
+        fontsize=16,
+        fontweight='bold',
+        fontfamily='simhei'
     )
     ax.set_xlabel('横向物理宽度 (米)', fontsize=14)
     ax.set_ylabel('高程 (mm)', fontsize=14)
@@ -337,7 +334,7 @@ with st.sidebar:
 
     btn_load_road = st.button("🗺️ 1. 解析并生成 3D 地形", type="primary", use_container_width=True)
 
-    # 这就确保了只要点击过一次解析，下面的模拟按钮马上就会解锁！
+    # 这就确保了只要点击过一次解析，下面的模拟按钮马上就会解锁
     if btn_load_road:
         if uploaded_file is None or start_segment is None:
             st.error("请先上传 .h5 文件！")
@@ -372,7 +369,7 @@ with st.sidebar:
 
 
 # ==========================================
-# 🌟 新增：强制居中的自定义指标卡片渲染函数
+# 强制居中的自定义指标卡片渲染函数
 # ==========================================
 def render_centered_metric(col_obj, title, value, delta=""):
     # 如果有增量(delta)，显示绿色小字；否则用空 div 占位保证高度一致
@@ -440,14 +437,14 @@ elif st.session_state.road_loaded and not btn_run_sim:
     plot3d_container.plotly_chart(create_3d_figure(matrix_crop, dx_mm=dx_mm), use_container_width=True)
     row_i = min(int(matrix_crop.shape[0] / 2), matrix_crop.shape[0] - 1)
     # plot2d_container.pyplot(plot_2d_cross_section(matrix_crop, None, dx_mm, row_idx=row_i))
-    # 🌟 替换为 SVG 渲染模式
+    # 替换为 SVG 渲染模式
     fig_2d = plot_2d_cross_section(matrix_crop, None, dx_mm, row_idx=row_i)
     buf = io.BytesIO()
     fig_2d.savefig(buf, format="svg", bbox_inches="tight")
     plot2d_container.image(buf.getvalue().decode("utf-8"), use_container_width=True)
     plt.close(fig_2d)
 # ------------------------------------------
-# 动作 2: 执行动态降雨动画
+# 执行动态降雨动画
 # ------------------------------------------
 if btn_run_sim and st.session_state.road_loaded:
     matrix_crop = st.session_state.matrix_crop
@@ -464,7 +461,7 @@ if btn_run_sim and st.session_state.road_loaded:
     status_text = st.empty()
     final_depth_crop = None
 
-    # ====== 新增：记录仿真数据的列表 ======
+    # ====== 记录仿真数据的列表 ======
     simulation_history = []
 
     for step in range(1, anim_frames + 1):
@@ -511,7 +508,7 @@ if btn_run_sim and st.session_state.road_loaded:
         # 2D 图也需要使用 fine 矩阵以保证横坐标点数匹配
         row_i = int(fine_matrix_crop.shape[0] / 2)
         # plot2d_container.pyplot(plot_2d_cross_section(fine_matrix_crop, surf_crop, fine_dx_mm, row_idx=row_i))
-        # 🌟 替换为 SVG 渲染模式
+        # 替换为 SVG 渲染模式
         fig_2d_sim = plot_2d_cross_section(fine_matrix_crop, surf_crop, fine_dx_mm, row_idx=row_i)
         buf_sim = io.BytesIO()
         fig_2d_sim.savefig(buf_sim, format="svg", bbox_inches="tight")
@@ -548,7 +545,7 @@ if btn_run_sim and st.session_state.road_loaded:
                 f"平均水深: {item['平均水深 (mm)']:>5.2f} mm | "
                 f"覆盖率: {item['覆盖率 (%)']}\n"
             )
-        log_lines.append("\n")  # 添加空行分隔每次任务
+        log_lines.append("\n")
 
         with open(log_file_path, "a", encoding="utf-8") as f:
             f.writelines(log_lines)
@@ -558,7 +555,7 @@ if btn_run_sim and st.session_state.road_loaded:
     except Exception as e:
         st.error(f"❌ 自动保存日志失败，请检查路径权限: {e}")
 
-    # ====== 纯净版的前端表格展示 ======
+    # ====== 前端表格展示 ======
     with export_container:
         st.markdown("### 📊 动态降雨过程数据详情")
         df_history = pd.DataFrame(simulation_history)
