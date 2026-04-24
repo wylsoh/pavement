@@ -10,6 +10,8 @@ import h5py
 from datetime import datetime
 from scipy.ndimage import label, generate_binary_structure, binary_dilation
 from scipy.ndimage import zoom
+from risk_assessment import evaluate_hydroplaning_risk, dynamic_decision_making, render_risk_heatmap
+
 
 
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
@@ -34,6 +36,8 @@ if 'target_cols' not in st.session_state:
     st.session_state.target_cols = 0
 if 'coverage_history' not in st.session_state:
     st.session_state.coverage_history = {}
+if 'final_depth_crop' not in st.session_state:
+    st.session_state.final_depth_crop = None
 
 
 st.title("🌧️ 路表降雨水膜动态物理推演系统")
@@ -135,12 +139,12 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
     x_dm = np.arange(matrix.shape[1]) * (dx_mm / 100.0)
     y_dm = np.arange(matrix.shape[0]) * (dx_mm / 100.0)
 
-    z_mm = matrix
+    z_m = matrix
 
     fig = go.Figure()
 
     fig.add_trace(go.Surface(
-        z=z_mm, x=x_dm, y=y_dm,
+        z=z_m, x=x_dm, y=y_dm,
         colorscale='Portland', name='路表高程', showscale=False,
         contours=dict(
             x=dict(show=True, color='black', width=1, start=x_dm[0], end=x_dm[-1], size=dx_mm / 100.0),
@@ -149,8 +153,8 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
     ))
 
     if water_surf is not None and water_depth is not None:
-        water_surf_mm = water_surf
-        water_only = np.where(water_depth > 1e-4, water_surf_mm, np.nan)
+        water_surf_m = water_surf
+        water_only = np.where(water_depth > 1e-4, water_surf_m, np.nan)
 
         if not np.all(np.isnan(water_only)):
             fig.add_trace(go.Surface(
@@ -169,7 +173,7 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
         scene=dict(
             xaxis_title='车道宽度(dm)',
             yaxis_title='路线长度(dm)',
-            zaxis_title='路表高程(mm)',  # 更新轴标签
+            zaxis_title='路表高程(m)',  # 更新轴标签
             aspectmode='manual',
             aspectratio=dict(x=1, y=true_y_ratio, z=0.5),
 
@@ -288,7 +292,7 @@ def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
     ax.plot(x_m, profile_orig, color='#2f3640', linewidth=1.5, label=f'路面高程')
     ax.set_title(f'中心车道横截面状态 (纵向位置: {row_idx * dx_mm / 1000.0:.1f}m)', fontsize=12, fontweight='bold')
     ax.set_xlabel('横向物理宽度 (米)')
-    ax.set_ylabel('高程 (mm)')
+    ax.set_ylabel('高程 (m)')
     ax.grid(True, linestyle='--', alpha=0.5)
     ax.legend(loc='upper right', fontsize=13)
     ax.tick_params(axis='both', which='major', labelsize=13)
@@ -299,7 +303,7 @@ def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
         fontfamily='simhei'
     )
     ax.set_xlabel('横向物理宽度 (米)', fontsize=14)
-    ax.set_ylabel('高程 (mm)', fontsize=14)
+    ax.set_ylabel('高程 (m)', fontsize=14)
     fig.tight_layout()
     return fig
 
@@ -472,8 +476,8 @@ if btn_run_sim and st.session_state.road_loaded:
         surf_crop, depth_crop = simulate_water_film_with_low_wall(
             fine_matrix_crop,
             current_rain / 1000.0,
-            wall_margin,
-            max_h_step
+            wall_margin / 1000.0,
+            max_h_step / 1000.0
         )
         final_depth_crop = depth_crop
 
@@ -482,11 +486,12 @@ if btn_run_sim and st.session_state.road_loaded:
 
         st.session_state.coverage_history[round(current_rain, 2)] = coverage
 
+        # 【单位修正】记录数据：将引擎输出的米(m) 乘以 1000 转回毫米(mm)
         simulation_history.append({
             "降雨阶段": f"{step}/{anim_frames}",
             "当前降雨量 (mm)": round(current_rain, 2),
-            "最大积水深度 (mm)": round(np.max(depth_crop), 2),
-            "平均积水深度 (mm)": round(np.mean(depth_crop), 2),
+            "最大积水深度 (mm)": round(np.max(depth_crop) * 1000.0, 2),
+            "平均积水深度 (mm)": round(np.mean(depth_crop) * 1000.0, 2),
             "积水覆盖率 (%)": f"{coverage:.2f}%"
         })
 
@@ -494,9 +499,11 @@ if btn_run_sim and st.session_state.road_loaded:
             c1, c2, c3, c4 = st.columns(4)
             render_centered_metric(c1, "当前降雨进度", f"{current_rain:.1f} mm",
                                    delta=f"↑ {target_rainfall / anim_frames:.1f} mm")
-            render_centered_metric(c2, "最大积水深度", f"{np.max(depth_crop):.2f} mm")
+            # 【单位修正】UI 面板展示：将 m 乘以 1000 转换为 mm
+            render_centered_metric(c2, "最大积水深度", f"{np.max(depth_crop) * 1000.0:.2f} mm")
             render_centered_metric(c3, "积水覆盖率", f"{(np.count_nonzero(depth_crop) / depth_crop.size) * 100:.1f} %")
-            render_centered_metric(c4, "地形最大高差", f"{np.max(matrix_crop) - np.min(matrix_crop):.1f} mm")
+            # 【单位修正】UI 面板展示：将 m 乘以 1000 转换为 mm
+            render_centered_metric(c4, "地形最大高差", f"{(np.max(matrix_crop) - np.min(matrix_crop)) * 1000.0:.1f} mm")
 
         # 3. 维度对齐与 Key 标识
         plot3d_container.plotly_chart(
@@ -507,7 +514,6 @@ if btn_run_sim and st.session_state.road_loaded:
 
         # 2D 图也需要使用 fine 矩阵以保证横坐标点数匹配
         row_i = int(fine_matrix_crop.shape[0] / 2)
-        # plot2d_container.pyplot(plot_2d_cross_section(fine_matrix_crop, surf_crop, fine_dx_mm, row_idx=row_i))
         # 替换为 SVG 渲染模式
         fig_2d_sim = plot_2d_cross_section(fine_matrix_crop, surf_crop, fine_dx_mm, row_idx=row_i)
         buf_sim = io.BytesIO()
@@ -522,6 +528,7 @@ if btn_run_sim and st.session_state.road_loaded:
 
     final_coverage = (np.count_nonzero(final_depth_crop) / final_depth_crop.size) * 100
     st.session_state.coverage_history[target_rainfall] = final_coverage
+    st.session_state.final_depth_crop = final_depth_crop
 
     # ====== 后台自动存储日志逻辑 ======
     try:
@@ -538,12 +545,13 @@ if btn_run_sim and st.session_state.road_loaded:
             "执行结果:\n"
         ]
 
+        # 【Bug 修正】字典键值（Key）对齐，与 simulation_history 添加时保持一致
         for item in simulation_history:
             log_lines.append(
-                f"  [{item['降雨阶段']}] 雨量: {item['目标降雨量 (mm)']:>5.2f} mm | "
-                f"最大水深: {item['最大水深 (mm)']:>5.2f} mm | "
-                f"平均水深: {item['平均水深 (mm)']:>5.2f} mm | "
-                f"覆盖率: {item['覆盖率 (%)']}\n"
+                f"  [{item['降雨阶段']}] 雨量: {item['当前降雨量 (mm)']:>5.2f} mm | "
+                f"最大水深: {item['最大积水深度 (mm)']:>5.2f} mm | "
+                f"平均水深: {item['平均积水深度 (mm)']:>5.2f} mm | "
+                f"覆盖率: {item['积水覆盖率 (%)']}\n"
             )
         log_lines.append("\n")
 
@@ -608,3 +616,39 @@ if st.session_state.road_loaded:
             st.plotly_chart(fig_trend, use_container_width=True)
         else:
             st.info("💡 暂无历史趋势数据。请在左侧设定不同的降雨量并执行推演，即可在此处自动生成趋势图。")
+
+# 在 Streamlit 界面中新增一个专属的风险评估展示区
+st.markdown("---")
+st.subheader("🚨 智能滑水风险评估与动态决策")
+
+if st.session_state.final_depth_crop is not None:
+    water_depth = st.session_state.final_depth_crop
+    with st.spinner("⏳ 正在结合水膜厚度与车速分布计算全域滑水概率..."):
+        # 1. 计算全域风险 (假设路段限速80，车速均值75.3)
+        prob_matrix, risk_level_matrix, risk_score_matrix = evaluate_hydroplaning_risk(water_depth*1000)
+
+        # 2. 生成动态决策报告
+        decision = dynamic_decision_making(risk_level_matrix)
+
+    # 3. 使用 Streamlit 的列 (columns) 和指标 (metric) 组件美化报告输出
+    col1, col2 = st.columns(2)
+    with col1:
+        # 根据整体风险状态改变颜色或提示框
+        if "危险" in decision['overall_status']:
+            st.error(f"**整体评估状态:** {decision['overall_status']}")
+        elif "关注" in decision['overall_status']:
+            st.warning(f"**整体评估状态:** {decision['overall_status']}")
+        else:
+            st.success(f"**整体评估状态:** {decision['overall_status']}")
+
+        st.metric(label="高风险区 (A/B级) 占比", value=decision['high_risk_area_ratio'])
+
+    with col2:
+        st.info(f"**🚦 动态交通管控建议:** \n\n{decision['traffic_control']}")
+        st.warning(f"**🛠️ 养护处治指导:** \n\n{decision['maintenance_action']}")
+
+    # 4. 在前端直接渲染 2D 风险热力图
+    st.markdown("#### 面域级滑水风险图谱 (A级至E级)")
+    risk_fig = render_risk_heatmap(risk_score_matrix)
+    # 使用 Streamlit 原生的 plotly 渲染组件展示图表
+    st.plotly_chart(risk_fig, use_container_width=True)
