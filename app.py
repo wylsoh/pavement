@@ -68,7 +68,6 @@ def load_and_preprocess_h5(h5_path, start_segment, num_blocks, max_std=15.0, ove
             if np.sum(valid_mask) < 100:
                 continue
 
-            # 2. 🌟 核心修复：异常路段免疫 (跳过 004801, 004810 等剧烈畸变段)
             current_std = np.std(data[valid_mask])
             if current_std > max_std:
                 # 在前端 UI 提示用户跳过了哪些坏数据
@@ -123,7 +122,7 @@ def load_and_preprocess_h5(h5_path, start_segment, num_blocks, max_std=15.0, ove
 
 
 # ==========================================
-# 辅助渲染函数 (物理比例严格还原)
+# 辅助渲染函数
 # ==========================================
 def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
     """生成 3D Plotly 图像 (严格还原长宽物理比例)"""
@@ -136,7 +135,7 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
 
     fig.add_trace(go.Surface(
         z=z_m, x=x_dm, y=y_dm,
-        colorscale='Jet', name='路表高程', showscale=False,
+        colorscale='Portland', name='路表高程', showscale=False,
         contours=dict(
             x=dict(show=True, color='black', width=1, start=x_dm[0], end=x_dm[-1], size=dx_mm / 100.0),
             y=dict(show=True, color='black', width=1, start=y_dm[0], end=y_dm[-1], size=dx_mm / 100.0)
@@ -154,7 +153,7 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
                 name='水膜', showscale=False, hoverinfo='skip'
             ))
 
-    # 🌟 核心改进：动态计算真实物理长宽比
+    # 动态计算真实物理长宽比
     x_physical_length = x_dm[-1] - x_dm[0]
     y_physical_length = y_dm[-1] - y_dm[0]
 
@@ -169,8 +168,8 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
             zaxis_title='路表高程(m)',
             aspectmode='manual',
             # 长宽严格锁定真实比例，Z轴固定高度放大（比如 0.4）方便观察水流
-            aspectratio=dict(x=1, y=true_y_ratio, z=0.4),
-            camera=dict(eye=dict(x=1.8, y=-1.8, z=1.2))
+            aspectratio=dict(x=1, y=true_y_ratio, z=0.5),
+            camera=dict(eye=dict(x=1.8, y=-1.8, z=1.3))
         ),
         margin=dict(l=0, r=0, b=0, t=30),
         height=600,
@@ -181,7 +180,7 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
 
 
 # ==========================================
-# 核心物理推演引擎 (带防死锁水墙)
+# 核心物理推演引擎
 # ==========================================
 def simulate_water_film_with_low_wall(data0, shuimo_h, wall_margin):
     m, n = data0.shape
