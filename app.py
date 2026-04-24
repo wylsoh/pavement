@@ -6,6 +6,7 @@ import time
 import os
 import h5py
 from scipy.ndimage import label, generate_binary_structure, binary_dilation
+from scipy.ndimage import zoom
 
 # ⚠️ 注意：需要在文件开头的 import 区域补上这一句：
 from scipy.ndimage import median_filter
@@ -180,7 +181,7 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
 
 
 # ==========================================
-# 核心物理推演引擎
+# 核心物理推演引擎 (升级版：8连通异形坑洼全捕捉)
 # ==========================================
 def simulate_water_film_with_low_wall(data0, shuimo_h, wall_margin):
     m, n = data0.shape
@@ -188,60 +189,83 @@ def simulate_water_film_with_low_wall(data0, shuimo_h, wall_margin):
     qy = np.pad(data0, pad_width=1, mode='constant', constant_values=wall_height)
 
     V = shuimo_h * m * n
-    structure = generate_binary_structure(2, 1)
+
+    # 🌟 核心修复 1：从 4 连通升级为 8 连通 (米字型拓扑)
+    # 这让连通域和边缘膨胀都能识别对角线水流，完美捕捉斜向车辙和异形坑
+    structure = generate_binary_structure(2, 2)
+
     iteration = 0
+    max_h_step = 0.05
 
     while V > 1e-6:
         iteration += 1
+
+        # 🌟 核心修复 2：全方位 8 邻域探针
         top = qy[:-2, 1:-1]
         bottom = qy[2:, 1:-1]
         left = qy[1:-1, :-2]
         right = qy[1:-1, 2:]
+
+        # 增加对角线探针
+        top_left = qy[:-2, :-2]
+        top_right = qy[:-2, 2:]
+        bottom_left = qy[2:, :-2]
+        bottom_right = qy[2:, 2:]
+
         center = qy[1:-1, 1:-1]
 
-        is_min_center = (center <= top) & (center <= bottom) & (center <= left) & (center <= right)
-        is_min = np.pad(is_min_center, pad_width=1, mode='constant', constant_values=False)
-        min_indices = np.argwhere(is_min)
+        # 只有比周围 8 个点都低(或相等)，才算真正的坑底
+        is_min_center = (center <= top) & (center <= bottom) & \
+                        (center <= left) & (center <= right) & \
+                        (center <= top_left) & (center <= top_right) & \
+                        (center <= bottom_left) & (center <= bottom_right)
 
-        if len(min_indices) == 0:
+        is_min = np.pad(is_min_center, pad_width=1, mode='constant', constant_values=False)
+
+        num_minima = np.sum(is_min)
+        if num_minima == 0:
             break
 
-        h_dist = V / len(min_indices)
-        for r, c in min_indices:
-            qy[r, c] += h_dist
+        # 限制步长，同步逐层填水
+        theoretical_h_dist = V / num_minima
+        h_dist = min(max_h_step, theoretical_h_dist)
 
+        V_used = h_dist * num_minima
+        V_remaining = V - V_used
+
+        # 向量化加水
+        qy[is_min] += h_dist
+
+        # 这里的 label 已经因为 structure=2,2 变成了 8连通聚类
         labeled_array, num_features = label(is_min, structure=structure)
         v_excess = np.zeros_like(qy)
 
         for region_idx in range(1, num_features + 1):
             region_mask = (labeled_array == region_idx)
-            dilated = binary_dilation(region_mask, structure=structure)
-            boundary_mask = dilated ^ region_mask
+            # 膨胀寻找溢流口时，也会向对角线寻找
+            boundary_mask = binary_dilation(region_mask, structure=structure) ^ region_mask
 
             if not np.any(boundary_mask):
                 continue
 
             ljmin = np.min(qy[boundary_mask])
-            region_pixels = np.argwhere(region_mask)
-            r0, c0 = region_pixels[0]
+            region_val = qy[region_mask][0]
 
-            if qy[r0, c0] > ljmin:
-                for r, c in region_pixels:
-                    excess_water = qy[r, c] - ljmin
-                    # 只有未漫过水墙的水才会在内部继续流动，漫过即排走，防止死循环
-                    if ljmin < wall_height - 1e-5:
-                        v_excess[r, c] = excess_water
-                    qy[r, c] = ljmin
+            if region_val > ljmin:
+                excess_water = qy[region_mask] - ljmin
+                if ljmin < wall_height - 1e-5:
+                    v_excess[region_mask] = excess_water
+                qy[region_mask] = ljmin
 
-        V = np.sum(v_excess)
-        if iteration > 2000:
+        V = V_remaining + np.sum(v_excess)
+
+        if iteration > 5000:
             break
 
     water_surface = qy[1:-1, 1:-1]
     water_depth = water_surface - data0
     water_depth[water_depth < 1e-4] = 0
     return water_surface, water_depth
-
 
 def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
     profile_orig = matrix[row_idx, :]
@@ -293,7 +317,6 @@ with st.sidebar:
 
     btn_load_road = st.button("🗺️ 1. 解析并生成 3D 地形", type="primary", use_container_width=True)
 
-    # 🌟 修复二：在渲染下方的按钮前，立刻处理第一步的逻辑！
     # 这就确保了只要点击过一次解析，下面的模拟按钮马上就会解锁！
     if btn_load_road:
         if uploaded_file is None or start_segment is None:
@@ -340,7 +363,7 @@ with col_right:
 metrics_container = st.empty()
 export_container = st.empty()
 
-# 🌟 修复三：缺省骨架渲染
+# 缺省骨架渲染
 # 如果还没上传解析数据，展示提示性的空白面板
 if not st.session_state.road_loaded:
     with metrics_container.container():
@@ -379,10 +402,15 @@ elif st.session_state.road_loaded and not btn_run_sim:
 # 动作 2: 执行动态降雨动画
 # ------------------------------------------
 if btn_run_sim and st.session_state.road_loaded:
-    matrix_full = st.session_state.matrix_full
     matrix_crop = st.session_state.matrix_crop
-    trim_cols = st.session_state.trim_cols
-    target_cols = st.session_state.target_cols
+
+    # 1. 将高耗时的插值计算移出循环，只做一次
+    scale_factor = 2
+    original_dx_mm = 100.0
+    fine_dx_mm = original_dx_mm / scale_factor
+
+    with st.spinner("⏳ 正在进行超分辨率地图插值..."):
+        fine_matrix_crop = zoom(matrix_crop, scale_factor, order=3)
 
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -392,11 +420,12 @@ if btn_run_sim and st.session_state.road_loaded:
         current_rain = target_rainfall * (step / anim_frames)
         status_text.text(f"正在进行流体力学演算... 阶段 {step}/{anim_frames} (雨量: {current_rain:.1f}mm)")
 
-        # 使用带防死锁水墙的内嵌函数
-        surf_full, depth_full = simulate_water_film_with_low_wall(matrix_full, (current_rain/1000.0), wall_margin)
-
-        surf_crop = surf_full[:, trim_cols: trim_cols + target_cols]
-        depth_crop = depth_full[:, trim_cols: trim_cols + target_cols]
+        # 2. 物理演算
+        surf_crop, depth_crop = simulate_water_film_with_low_wall(
+            fine_matrix_crop,
+            current_rain / 1000.0,
+            wall_margin
+        )
         final_depth_crop = depth_crop
 
         with metrics_container.container():
@@ -406,13 +435,19 @@ if btn_run_sim and st.session_state.road_loaded:
             c3.metric("积水覆盖率", f"{(np.count_nonzero(depth_crop) / depth_crop.size) * 100:.1f} %")
             c4.metric("地形最大高差", f"{np.max(matrix_crop) - np.min(matrix_crop):.1f} mm")
 
-        plot3d_container.plotly_chart(create_3d_figure(matrix_crop, surf_crop, depth_crop, dx_mm),
-                                      use_container_width=True)
-        row_i = min(int(matrix_crop.shape[0] / 2), matrix_crop.shape[0] - 1)
-        plot2d_container.pyplot(plot_2d_cross_section(matrix_crop, surf_crop, dx_mm, row_idx=row_i))
+        # 3. 维度对齐与 Key 标识
+        plot3d_container.plotly_chart(
+            create_3d_figure(fine_matrix_crop, surf_crop, depth_crop, fine_dx_mm),
+            use_container_width=True,
+            key=f"sim_frame_{step}"  # 修复 Streamlit ID 冲突
+        )
+
+        # 2D 图也需要使用 fine 矩阵以保证横坐标点数匹配
+        row_i = int(fine_matrix_crop.shape[0] / 2)
+        plot2d_container.pyplot(plot_2d_cross_section(fine_matrix_crop, surf_crop, fine_dx_mm, row_idx=row_i))
 
         progress_bar.progress(step / anim_frames)
-        time.sleep(0.1)
+        time.sleep(0.05)
 
     status_text.success(f"✅ 物理推演完成！最终降雨量达到 {target_rainfall} mm。")
 
