@@ -312,13 +312,20 @@ with st.sidebar:
 
     if 'current_h5_path' not in st.session_state:
         st.session_state.current_h5_path = None
+    if 'prev_data_source' not in st.session_state:
+        st.session_state.prev_data_source = "📁 上传本地数据 (.h5)"
 
-    # 支持数据源切换
-    data_source = st.radio("选择数据来源", ["📁 上传本地数据 (.h5)", "🌐 加载在线示例数据"])
+    # 1. 选项菜单：支持数据源切换
+    data_source = st.radio("选择数据来源", ["📁 上传本地数据 (.h5)", "📦 加载内置示例数据"])
 
-    SAMPLE_H5_URL = "assets/sample_data.h5"
+    # 2. 状态保护：如果检测到用户切换了选项，立刻清空底层的旧数据，防止新旧数据串台
+    if data_source != st.session_state.prev_data_source:
+        st.session_state.current_h5_path = None
+        st.session_state.road_loaded = False
+        st.session_state.prev_data_source = data_source
 
-    if data_source == "📁 上传外部数据 (.h5)":
+    # 3. 分支逻辑 A：用户自己上传
+    if data_source == "📁 上传本地数据 (.h5)":
         uploaded_file = st.file_uploader("上传路面点云 (.h5)", type=['h5'])
         if uploaded_file is not None:
             # 使用安全的临时文件写入
@@ -327,15 +334,22 @@ with st.sidebar:
                     tmp_file.write(uploaded_file.getbuffer())
                     st.session_state.current_h5_path = tmp_file.name
                 st.session_state.last_uploaded_name = uploaded_file.name
-    else:
+        else:
+            # 如果用户点击了上传框里的 'X' 清空了文件，底层的路径也同步清空
+            st.session_state.current_h5_path = None
+
+    # 3. 分支逻辑 B：使用内置示例
+    elif data_source == "📦 加载内置示例数据":
         st.info("💡 系统将直接加载项目库中内置的高保真路面点云数据，供您快速体验完整功能流程。")
+
+        # 【已恢复】：把确认加载的按钮加回来，满足明确的操作习惯
         if st.button("⬇️ 一键加载内置示例数据", use_container_width=True):
+            # 指向你本地项目文件夹里的数据路径
             local_sample_path = os.path.join("assets", "sample_data.h5")
 
-            # 检查文件到底存不存在，防止路径写错报错
             if os.path.exists(local_sample_path):
                 st.session_state.current_h5_path = local_sample_path
-                st.success("✅ 内置示例数据加载成功！请在下方点击【解析并生成 3D 地形】")
+                st.success("✅ 内置示例数据加载成功！请在下方选择路段并生成地形。")
             else:
                 st.error(f"❌ 找不到内置示例文件！\n\n请检查代码所在的目录下是否存在 `{local_sample_path}` 这个文件。")
 
@@ -351,6 +365,7 @@ with st.sidebar:
     start_segment = None
     num_blocks = 1
 
+    # 只有当 current_h5_path 成功赋值（不管上传的还是内置的），才会渲染路段选择框
     if st.session_state.current_h5_path is not None:
         try:
             with h5py.File(st.session_state.current_h5_path, 'r') as h5f:
@@ -359,7 +374,7 @@ with st.sidebar:
             max_blocks = len(segments) - segments.index(start_segment)
             num_blocks = st.slider("连续读取路段数量", min_value=1, max_value=max_blocks, value=min(5, max_blocks))
         except Exception as e:
-            st.error("无法读取 H5 文件结构，请确保上传了合法的文件。")
+            st.error(f"无法读取 H5 文件结构，请确保上传了合法的文件。\n\n详情: {e}")
 
     target_width_m = st.number_input("核心车道宽度 (m)", value=3.75)
     length_m = st.number_input("纵向截取长度 (m)", value=5.0)
@@ -368,7 +383,7 @@ with st.sidebar:
 
     if btn_load_road:
         if st.session_state.current_h5_path is None or start_segment is None:
-            st.error("请先上传或获取 .h5 数据文件！")
+            st.error("请先上传或加载 .h5 数据文件！")
         else:
             with st.spinner("⏳ 正在重建高精度 3D 物理底座..."):
                 matrix_full = load_and_preprocess_h5(st.session_state.current_h5_path, start_segment, num_blocks)
@@ -403,7 +418,7 @@ with st.sidebar:
     )
     wall_margin = st.slider("边缘挡水墙裕量 (mm)", 0.0, 2.0, 1.0, step=0.5)
     anim_frames = st.slider("仿真动画帧数 (分解步数)", 1, 10, 5)
-    max_h_step = st.slider("单次最大水位爬升步长(mm)", 0.0, 0.1, 0.01, step=0.002)
+    max_h_step = st.slider("单次最大水位爬升步长(mm)", 0.000, 0.100, 0.010, step=0.002)
     btn_run_sim = st.button("🌊 2. 开始动态降雨推演", type="primary", use_container_width=True,
                             disabled=not st.session_state.road_loaded)
     st.divider()
