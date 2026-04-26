@@ -26,6 +26,32 @@ np.set_printoptions(suppress=True)
 # ==========================================
 st.set_page_config(page_title="路面水膜灾害分析系统", layout="wide", page_icon="🌧️")
 
+# 全局 CSS 注入
+st.markdown("""
+<style>
+    /* 1. 隐藏 Streamlit 默认的右上角菜单和底部水印 (让系统看起来更像独立软件) */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+
+    /* 2. 美化所有的全局按钮 (增加圆角、悬浮放大和阴影动效) */
+    .stButton>button {
+        border-radius: 8px !important;
+        font-weight: bold !important;
+        transition: all 0.3s ease !important;
+    }
+    .stButton>button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 5px 10px rgba(0,0,0,0.15) !important;
+    }
+
+    /* 3. 美化所有的指标组件 (st.metric) */
+    div[data-testid="stMetricValue"] {
+        font-size: 1.8rem !important;
+        color: #0097e6 !important; /* 主题蓝 */
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # 初始化全局状态变量
 if 'road_loaded' not in st.session_state:
