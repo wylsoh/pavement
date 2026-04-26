@@ -1,15 +1,19 @@
 [theme]
-# 主色调：科技蓝
-primaryColor="#00a8ff"
+## 主色调：科技蓝
+#primaryColor="#00a8ff"
+## 背景色：纯白，符合纸质印刷感
+#backgroundColor = "#ffffff"
+## 侧边栏/次要背景色：极浅的灰色，区分层级但不喧宾夺主
+#secondaryBackgroundColor = "#f2f2f2"
+#
+## 文本颜色：深灰/纯黑，提高对比度
+#textColor = "#2f3640"
 
-# 背景色：纯白，符合纸质印刷感
-backgroundColor = "#ffffff"
+## 字体：强化学术感的衬线字体 (Serif)
+#font = "sans serif"
 
-# 侧边栏/次要背景色：极浅的灰色，区分层级但不喧宾夺主
-secondaryBackgroundColor = "#f2f2f2"
-
-# 文本颜色：深灰/纯黑，提高对比度
-textColor = "#2f3640"
-
-# 字体：强化学术感的衬线字体 (Serif)
-font = "sans serif"
+## 黑色主题核心配置
+#primaryColor="#00d2ff"          # 主色调：按钮和高亮（推荐用明亮的荧光蓝）
+#backgroundColor="#0e1117"       # 网页主背景色（深墨黑）
+#secondaryBackgroundColor="#262730" # 组件背景色（如侧边栏、文本框）
+#textColor="#fafafa"             # 文字颜色（亮白/浅灰）
