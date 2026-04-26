@@ -318,7 +318,7 @@ with st.sidebar:
     data_source = st.radio("选择数据来源", ["📁 上传本地数据 (.h5)", "🌐 加载在线示例数据"])
 
     # 请在此处替换为你实际的 GitHub 仓库文件直链 (Raw URL)
-    SAMPLE_H5_URL = "https://github.com/wylsoh/pavement/tree/master/assets/sample_data.h5"
+    SAMPLE_H5_URL = "https://raw.githubusercontent.com/wylsoh/pavement/master/assets/sample_data.h5"
 
     if data_source == "📁 上传本地数据 (.h5)":
         uploaded_file = st.file_uploader("上传路面点云 (.h5)", type=['h5'])
@@ -343,7 +343,6 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"❌ 下载失败，请检查网络或确认 GitHub Raw 链接是否有效。\n\n详细信息: {e}")
 
-    # 【新增】数据安全承诺提示框
     st.markdown(
         """
         <div style="background-color: #f0f8ff; padding: 12px; border-radius: 8px; font-size: 13px; color: #333; margin-top: 15px; margin-bottom: 15px; border-left: 5px solid #00a8ff; line-height: 1.5;">
