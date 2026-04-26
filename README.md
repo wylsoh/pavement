@@ -39,14 +39,15 @@ cd pavement
 建议使用虚拟环境（如 conda/venv）。
 ```Bash
 pip install -r requirements.txt
-运行 Streamlit 应用
 ```
+3. **运行 Streamlit 应用**
+
 ```Bash
 streamlit run app.py
 ```
-运行后，浏览器将自动打开 http://localhost:8501。
+*运行后，浏览器将自动打开 http://localhost:8501。*
 
-3. **数据导入说明**
+4. **数据导入说明**
 
 - 可在系统左侧边栏点击 “📦 一键加载内置示例数据” 快速体验。
 - 可自行导入已经打包好的h5文件，或者使用仓库中的[转换代码](https://github.com/wylsoh/pavement/blob/master/assets/data_convert_to_h5.py)进行数据格式转换，支持多路段合并（目前仅支持mat->h5）
