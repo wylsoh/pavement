@@ -63,10 +63,7 @@ with col_title:
 with col_toggle:
     st.write("")
     st.write("")
-    dark_toggle = st.toggle("🌙 暗黑模式", value=st.session_state.dark_mode)
-    if dark_toggle != st.session_state.dark_mode:
-        st.session_state.dark_mode = dark_toggle
-        st.rerun()
+    st.toggle("🌙 暗黑模式", key="dark_mode")
 
 # ==========================================
 # CSS 主题注入
@@ -579,7 +576,7 @@ if not st.session_state.road_loaded:
 
     fig_empty_2d = go.Figure().update_layout(
         xaxis=dict(visible=False), yaxis=dict(visible=False),
-        annotations=[dict(text="等待数据导入...", x=0.5, y=0.5, showarrow=False, font=dict(color="gray", size=16))],
+        annotations=[dict(text="等待数据导入...", x=-0.5, y=-0.5, showarrow=False, font=dict(color="gray", size=16))],
         template="plotly_dark" if is_dark else "plotly_white",
         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, b=0, t=30), height=350
     )
