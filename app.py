@@ -11,8 +11,8 @@ from scipy.ndimage import label, generate_binary_structure, binary_dilation
 from scipy.ndimage import zoom
 from scipy.ndimage import median_filter
 
-from risk_assessment import evaluate_hydroplaning_risk, dynamic_decision_making, render_risk_heatmap
-from treatment_decision import extract_high_risk_regions, add_bounding_boxes_to_fig, generate_treatment_plan_and_budget
+from modules.risk_assessment import evaluate_hydroplaning_risk, dynamic_decision_making, render_risk_heatmap
+from modules.treatment_decision import extract_high_risk_regions, add_bounding_boxes_to_fig, generate_treatment_plan_and_budget
 
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
 plt.rcParams['axes.unicode_minus'] = False

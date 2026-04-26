@@ -70,7 +70,7 @@ def convert_mat_to_h5(src_folder, h5_filepath):
 
 if __name__ == "__main__":
     # 源文件夹路径
-    source_dir = 'data/mat2'
+    source_dir = '../data/mat2'
     # h5文件的保存路径
     output_h5 = 'data/text_data.h5'
 
