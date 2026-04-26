@@ -46,7 +46,7 @@ pip install -r requirements.txt
 ```Bash
 streamlit run app.py
 ```
-*运行后，浏览器将自动打开 (http://localhost:8501)[http://localhost:8501]*。
+*运行后，浏览器将自动打开 [http://localhost:8501](http://localhost:8501)*。
 
 4. **数据导入说明**
 
