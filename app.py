@@ -182,21 +182,61 @@ def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
     profile_water = water_surf[row_idx, :] if water_surf is not None else profile_orig
     x_m = np.arange(len(profile_orig)) * (dx_mm / 1000.0)
 
-    fig, ax = plt.subplots(figsize=(10, 4), dpi=300, facecolor='white')
-    if water_surf is not None:
-        ax.fill_between(x_m, profile_orig, profile_water, color='#00a8ff', alpha=0.6, label='积水区域')
-        ax.plot(x_m, profile_water, color='#0097e6', linewidth=1, linestyle='--')
+    fig = go.Figure()
 
-    ax.plot(x_m, profile_orig, color='#2f3640', linewidth=1.5, label=f'路面高程')
-    ax.set_title(f'中心车道横截面状态 (纵向位置: {row_idx * dx_mm / 1000.0:.1f}m)', fontsize=16, fontweight='bold',
-                 fontfamily='simhei')
-    ax.set_xlabel('横向物理宽度 (米)', fontsize=14)
-    ax.set_ylabel('高程 (m)', fontsize=14)
-    ax.grid(True, linestyle='--', alpha=0.5)
-    ax.legend(loc='upper right', fontsize=13)
-    ax.yaxis.set_major_formatter(plt.FormatStrFormatter('%.3f'))
-    ax.tick_params(axis='both', which='major', labelsize=13)
-    fig.tight_layout()
+    # 1. 添加路面高程线 (底层)
+    fig.add_trace(go.Scatter(
+        x=x_m,
+        y=profile_orig,
+        mode='lines',
+        line=dict(color='#2f3640', width=2),
+        name='路面高程'
+    ))
+
+    # 2. 如果有水膜，添加水面线并向下填充颜色
+    if water_surf is not None:
+        fig.add_trace(go.Scatter(
+            x=x_m,
+            y=profile_water,
+            mode='lines',
+            line=dict(color='#0097e6', width=1.5, dash='dash'),
+            name='积水区域',
+            fill='tonexty',  # Plotly 专属参数：将颜色填充到上一条轨迹（即路面高程）
+            fillcolor='rgba(0, 168, 255, 0.6)'
+        ))
+
+    # 设置图表样式与交互
+    fig.update_layout(
+        title=dict(
+            text=f'中心车道横截面状态 (纵向位置: {row_idx * dx_mm / 1000.0:.1f}m)',
+            font=dict(size=16, family="Microsoft YaHei, Arial, sans-serif")
+        ),
+        xaxis=dict(
+            title='横向物理宽度 (米)',
+            showgrid=True,
+            gridcolor='#eeeeee',
+            zeroline=False
+        ),
+        yaxis=dict(
+            title='高程 (m)',
+            tickformat='.3f',  # 强制保留 3 位小数
+            showgrid=True,
+            gridcolor='#eeeeee',
+            zeroline=False
+        ),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        margin=dict(l=40, r=20, t=50, b=40),
+        legend=dict(
+            yanchor="top", y=0.99,
+            xanchor="right", x=0.99,
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="#e0e0e0",
+            borderwidth=1
+        ),
+        height=300
+    )
+
     return fig
 
 
@@ -275,6 +315,9 @@ with st.sidebar:
     start_segment = None
     num_blocks = 1
 
+    if 'current_h5_path' not in st.session_state:
+        st.session_state.current_h5_path = None
+
     if uploaded_file is not None:
         with open("temp_data.h5", "wb") as f:
             f.write(uploaded_file.getbuffer())
@@ -311,7 +354,6 @@ with st.sidebar:
                     st.session_state.target_cols = target_cols
                     st.session_state.road_loaded = True
 
-                    # 【修改】加载新地形时，强制清空之前的水膜和风险评估缓存
                     st.session_state.final_depth_crop = None
                     st.session_state.fine_matrix_crop = None
                     st.session_state.surf_crop = None
@@ -385,14 +427,16 @@ if not st.session_state.road_loaded:
                                           margin=dict(l=0, r=0, b=0, t=30), autosize=True, plot_bgcolor='white')
     plot3d_container.plotly_chart(fig_empty, use_container_width=True)
 
-    fig_empty_2d, ax = plt.subplots(figsize=(10, 4))
-    ax.text(0.5, 0.5, "等待数据导入...", ha='center', va='center', color='gray')
-    ax.set_xticks([]);
-    ax.set_yticks([])
-    plot2d_container.pyplot(fig_empty_2d)
+    # 【已修改为 Plotly】
+    fig_empty_2d = go.Figure().update_layout(
+        xaxis=dict(visible=False), yaxis=dict(visible=False),
+        annotations=[dict(text="等待数据导入...", x=0.5, y=0.5, showarrow=False, font=dict(color="gray", size=16))],
+        plot_bgcolor='white', margin=dict(l=0, r=0, b=0, t=30), height=300
+    )
+    plot2d_container.plotly_chart(fig_empty_2d, use_container_width=True)
 
 # ------------------------------------------
-# 状态 2：执行动态降雨推演动画 (用户点击了开始推演)
+# 状态 2：执行动态降雨推演动画
 # ------------------------------------------
 elif btn_run_sim and st.session_state.road_loaded:
     # 每次运行新推演，清空上一次的风险评估缓存
@@ -457,17 +501,14 @@ elif btn_run_sim and st.session_state.road_loaded:
 
         row_i = int(fine_matrix_crop.shape[0] / 2)
         fig_2d_sim = plot_2d_cross_section(fine_matrix_crop, surf_crop, fine_dx_mm, row_idx=row_i)
-        buf_sim = io.BytesIO()
-        fig_2d_sim.savefig(buf_sim, format="svg", bbox_inches="tight")
-        plot2d_container.image(buf_sim.getvalue().decode("utf-8"), use_container_width=True)
-        plt.close(fig_2d_sim)
+        plot2d_container.plotly_chart(fig_2d_sim, use_container_width=True, key=f"sim_2d_frame_{step}")
 
         progress_bar.progress(step / anim_frames)
         time.sleep(0.05)
 
     status_text.success(f"✅ 物理推演完成！最终降雨量达到 {target_rainfall} mm。")
 
-    # 【核心修改】将结果存入 session_state 以备重绘调用
+    # 将结果存入 session_state 以备重绘调用
     st.session_state.final_depth_crop = final_depth_crop
     st.session_state.fine_matrix_crop = fine_matrix_crop
     st.session_state.surf_crop = final_surf_crop
@@ -498,7 +539,7 @@ elif btn_run_sim and st.session_state.road_loaded:
         st.dataframe(pd.DataFrame(simulation_history), use_container_width=True)
 
 # ------------------------------------------
-# 状态 3：调用缓存静默渲染 (推演完成，后续点击了其他按钮引起刷新)
+# 状态 3：调用缓存静默渲染
 # ------------------------------------------
 elif st.session_state.road_loaded and st.session_state.final_depth_crop is not None:
     # 提取缓存变量
@@ -521,11 +562,9 @@ elif st.session_state.road_loaded and st.session_state.final_depth_crop is not N
     plot3d_container.plotly_chart(create_3d_figure(fine_matrix, surf, depth, f_dx), use_container_width=True)
 
     row_i = int(fine_matrix.shape[0] / 2)
+
     fig_2d_sim = plot_2d_cross_section(fine_matrix, surf, f_dx, row_idx=row_i)
-    buf_sim = io.BytesIO()
-    fig_2d_sim.savefig(buf_sim, format="svg", bbox_inches="tight")
-    plot2d_container.image(buf_sim.getvalue().decode("utf-8"), use_container_width=True)
-    plt.close(fig_2d_sim)
+    plot2d_container.plotly_chart(fig_2d_sim, use_container_width=True)
 
     with export_container:
         st.markdown("### 📊 动态降雨过程数据详情")
@@ -546,10 +585,7 @@ elif st.session_state.road_loaded and st.session_state.final_depth_crop is None:
     plot3d_container.plotly_chart(create_3d_figure(matrix_crop, dx_mm=dx_mm), use_container_width=True)
     row_i = min(int(matrix_crop.shape[0] / 2), matrix_crop.shape[0] - 1)
     fig_2d = plot_2d_cross_section(matrix_crop, None, dx_mm, row_idx=row_i)
-    buf = io.BytesIO()
-    fig_2d.savefig(buf, format="svg", bbox_inches="tight")
-    plot2d_container.image(buf.getvalue().decode("utf-8"), use_container_width=True)
-    plt.close(fig_2d)
+    plot2d_container.plotly_chart(fig_2d, use_container_width=True)
 
 # ==========================================
 # 统计分析区
