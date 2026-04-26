@@ -161,7 +161,7 @@ def load_and_preprocess_h5(h5_path, start_segment, num_blocks, max_std=15.0, ove
 # ==========================================
 # 辅助渲染函数
 # ==========================================
-def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
+def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0, show_grid=True):
     x_dm = np.arange(matrix.shape[1]) * (dx_mm / 100.0)
     y_dm = np.arange(matrix.shape[0]) * (dx_mm / 100.0)
     z_m = matrix
@@ -171,8 +171,8 @@ def create_3d_figure(matrix, water_surf=None, water_depth=None, dx_mm=100.0):
         z=z_m, x=x_dm, y=y_dm,
         colorscale='Portland', name='路表高程', showscale=False,
         contours=dict(
-            x=dict(show=True, color='black', width=1, start=x_dm[0], end=x_dm[-1], size=dx_mm / 100.0),
-            y=dict(show=True, color='black', width=1, start=y_dm[0], end=y_dm[-1], size=dx_mm / 100.0)
+            x=dict(show=show_grid, color='black', width=1, start=x_dm[0], end=x_dm[-1], size=dx_mm / 100.0),
+            y=dict(show=show_grid, color='black', width=1, start=y_dm[0], end=y_dm[-1], size=dx_mm / 100.0)
         )
     ))
 
@@ -477,6 +477,7 @@ st.divider()
 col_left, col_right = st.columns([1, 1])
 with col_left:
     st.subheader("🧊 三维空间水膜演化")
+    show_3d_grid = st.toggle("🌐 开启地形表面物理网格线", value=True, help="关闭网格线可获得更纯净的宏观积水渲染效果")
     plot3d_container = st.empty()
 with col_right:
     st.subheader("📈 典型横截面 (二维波谷填充)")
@@ -566,8 +567,9 @@ elif btn_run_sim and st.session_state.road_loaded:
             render_centered_metric(c3, "积水覆盖率", f"{(np.count_nonzero(depth_crop) / depth_crop.size) * 100:.1f} %")
             render_centered_metric(c4, "地形最大高差", f"{(np.max(matrix_crop) - np.min(matrix_crop)) * 1000.0:.1f} mm")
 
-        plot3d_container.plotly_chart(create_3d_figure(fine_matrix_crop, surf_crop, depth_crop, fine_dx_mm),
-                                      use_container_width=True, key=f"sim_frame_{step}")
+        plot3d_container.plotly_chart(create_3d_figure(fine_matrix_crop, surf_crop, depth_crop, fine_dx_mm, show_grid=show_3d_grid),
+                                      use_container_width=True,
+                                      key=f"sim_frame_{step}")
 
         row_i = int(fine_matrix_crop.shape[0] / 2)
         fig_2d_sim = plot_2d_cross_section(fine_matrix_crop, surf_crop, fine_dx_mm, row_idx=row_i)
@@ -626,7 +628,8 @@ elif st.session_state.road_loaded and st.session_state.final_depth_crop is not N
         render_centered_metric(c4, "地形最大高差",
                                f"{(np.max(st.session_state.matrix_crop) - np.min(st.session_state.matrix_crop)) * 1000.0:.1f} mm")
 
-    plot3d_container.plotly_chart(create_3d_figure(fine_matrix, surf, depth, f_dx), use_container_width=True)
+    plot3d_container.plotly_chart(create_3d_figure(fine_matrix, surf, depth, f_dx, show_grid=show_3d_grid),
+                                  use_container_width=True)
 
     row_i = int(fine_matrix.shape[0] / 2)
 
@@ -649,7 +652,8 @@ elif st.session_state.road_loaded and st.session_state.final_depth_crop is None:
         render_centered_metric(c3, "积水覆盖率", "0.0 %")
         render_centered_metric(c4, "地形最大高差", f"{(np.max(matrix_crop) - np.min(matrix_crop)) * 1000.0:.1f} mm")
 
-    plot3d_container.plotly_chart(create_3d_figure(matrix_crop, dx_mm=dx_mm), use_container_width=True)
+    plot3d_container.plotly_chart(create_3d_figure(matrix_crop, dx_mm=dx_mm, show_grid=show_3d_grid),
+                                  use_container_width=True)
     row_i = min(int(matrix_crop.shape[0] / 2), matrix_crop.shape[0] - 1)
     fig_2d = plot_2d_cross_section(matrix_crop, None, dx_mm, row_idx=row_i)
     plot2d_container.plotly_chart(fig_2d, use_container_width=True)
