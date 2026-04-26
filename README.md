@@ -56,6 +56,8 @@ streamlit run app.py
 ## 📂 项目结构
 ```Plaintext
 Pavement/
+├── .devcontainer/
+│   └── devcontainer.json          # 容器化开发环境配置
 ├── assets/
 │   ├── data_convert_to_h5.py      # 原始点云数据(.mat等)转.h5清洗脚本
 │   └── sample_data.h5             # 系统内置的高保真路面点云体验数据
