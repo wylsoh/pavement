@@ -36,6 +36,7 @@ git clone [https://github.com/wylsoh/pavement.git](https://github.com/wylsoh/pav
 cd pavement
 ```
 2. **安装依赖包**
+
 建议使用虚拟环境（如 conda/venv）。
 ```Bash
 pip install -r requirements.txt
