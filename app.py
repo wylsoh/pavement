@@ -7,8 +7,7 @@ import time
 import os
 import io
 import h5py
-import tempfile  # 【新增】用于生成不冲突的临时文件
-import requests  # 【新增】用于从 GitHub 下载示例数据
+import tempfile
 from datetime import datetime
 from scipy.ndimage import label, generate_binary_structure, binary_dilation
 from scipy.ndimage import zoom
@@ -318,30 +317,28 @@ with st.sidebar:
     data_source = st.radio("选择数据来源", ["📁 上传本地数据 (.h5)", "🌐 加载在线示例数据"])
 
     # 请在此处替换为你实际的 GitHub 仓库文件直链 (Raw URL)
-    SAMPLE_H5_URL = "https://raw.gitmirror.com/wylsoh/pavement/master/assets/sample_data.h5"
+    SAMPLE_H5_URL = "assets/sample_data.h5"
 
-    if data_source == "📁 上传本地数据 (.h5)":
+    if data_source == "📁 上传外部数据 (.h5)":
         uploaded_file = st.file_uploader("上传路面点云 (.h5)", type=['h5'])
         if uploaded_file is not None:
-            # 使用安全的临时文件写入，避免重复触发导致的性能浪费和冲突
+            # 使用安全的临时文件写入
             if st.session_state.get('last_uploaded_name') != uploaded_file.name:
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.h5') as tmp_file:
                     tmp_file.write(uploaded_file.getbuffer())
                     st.session_state.current_h5_path = tmp_file.name
                 st.session_state.last_uploaded_name = uploaded_file.name
     else:
-        st.info("💡 系统将从云端提取一份包含典型车辙的高保真路面点云数据，供您快速体验完整功能流程。")
-        if st.button("⬇️ 一键获取并加载示例数据", use_container_width=True):
-            with st.spinner("🚀 正在从 GitHub 极速下载示例数据，请稍候..."):
-                try:
-                    response = requests.get(SAMPLE_H5_URL, timeout=20)
-                    response.raise_for_status()  # 检查是否请求成功
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.h5') as tmp_file:
-                        tmp_file.write(response.content)
-                        st.session_state.current_h5_path = tmp_file.name
-                    st.success("✅ 示例数据加载成功！请在下方点击【解析并生成 3D 地形】")
-                except Exception as e:
-                    st.error(f"❌ 下载失败，请检查网络或确认 GitHub Raw 链接是否有效。\n\n详细信息: {e}")
+        st.info("💡 系统将直接加载项目库中内置的高保真路面点云数据，供您快速体验完整功能流程。")
+        if st.button("⬇️ 一键加载内置示例数据", use_container_width=True):
+            local_sample_path = os.path.join("assets", "sample_data.h5")
+
+            # 检查文件到底存不存在，防止路径写错报错
+            if os.path.exists(local_sample_path):
+                st.session_state.current_h5_path = local_sample_path
+                st.success("✅ 内置示例数据加载成功！请在下方点击【解析并生成 3D 地形】")
+            else:
+                st.error(f"❌ 找不到内置示例文件！\n\n请检查代码所在的目录下是否存在 `{local_sample_path}` 这个文件。")
 
     st.markdown(
         """
