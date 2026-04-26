@@ -99,7 +99,7 @@ def render_risk_heatmap(risk_score_matrix):
         ],
         zmin=0, zmax=4,
         labels={'color': '风险等级 (0=E, 4=A)'},
-        origin='lower'
+        # origin='lower'
     )
 
     fig.update_layout(

@@ -11,8 +11,11 @@ import tempfile
 from datetime import datetime
 from scipy.ndimage import label, generate_binary_structure, binary_dilation
 from scipy.ndimage import zoom
-from risk_assessment import evaluate_hydroplaning_risk, dynamic_decision_making, render_risk_heatmap
 from scipy.ndimage import median_filter
+
+from risk_assessment import evaluate_hydroplaning_risk, dynamic_decision_making, render_risk_heatmap
+from treatment_decision import extract_high_risk_regions, add_bounding_boxes_to_fig, generate_treatment_plan_and_budget
+
 
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
 plt.rcParams['axes.unicode_minus'] = False
@@ -22,6 +25,7 @@ np.set_printoptions(suppress=True)
 # UI 页面与状态配置
 # ==========================================
 st.set_page_config(page_title="路面水膜灾害分析系统", layout="wide", page_icon="🌧️")
+
 
 # 初始化全局状态变量
 if 'road_loaded' not in st.session_state:
@@ -418,7 +422,7 @@ with st.sidebar:
     )
     wall_margin = st.slider("边缘挡水墙裕量 (mm)", 0.0, 2.0, 1.0, step=0.5)
     anim_frames = st.slider("仿真动画帧数 (分解步数)", 1, 10, 5)
-    max_h_step = st.slider("单次最大水位爬升步长(mm)", 0.000, 0.100, 0.010, step=0.002)
+    max_h_step = st.slider("单次最大水位爬升步长(mm)", 0.000, 0.100, 0.010, step=0.002, format="%.3f")
     btn_run_sim = st.button("🌊 2. 开始动态降雨推演", type="primary", use_container_width=True,
                             disabled=not st.session_state.road_loaded)
     st.divider()
@@ -696,10 +700,63 @@ if st.session_state.final_depth_crop is not None:
 
         with col2:
             st.info(f"**🚦 动态交通管控建议:** \n\n{decision['traffic_control']}")
-            st.warning(f"**🛠️ 养护处治指导:** \n\n{decision['maintenance_action']}")
+            st.warning(f"**🛠️ 宏观养护指导:** \n\n{decision['maintenance_action']}")
 
-        st.markdown("#### 面域级滑水风险图谱 (A级至E级)")
+        st.markdown("#### 面域级滑水风险图谱 (含高危区自动智能框选)")
+
+        # 1. 获取基础风险热力图
         risk_fig = render_risk_heatmap(risk_score_matrix)
+
+        # 2. 识别并提取高危区域 (A/B级)
+        depth_matrix = st.session_state.final_depth_crop * 1000.0  # 转为 mm
+        area_ratio = st.session_state.matrix_full.shape[1] / st.session_state.matrix_crop.shape[1]
+
+        regions = extract_high_risk_regions(
+            risk_score_matrix=risk_score_matrix,
+            depth_matrix=depth_matrix,
+            fine_dx_mm=st.session_state.fine_dx_mm,
+            area_ratio=area_ratio
+        )
+
+        # 3. 将高危区边界框叠加至热力图中
+        if len(regions) > 0:
+            risk_fig = add_bounding_boxes_to_fig(risk_fig, regions)
+
         st.plotly_chart(risk_fig, use_container_width=True)
+
+        # ==========================================
+        # 新增模块：高危区靶向处治与工程预算最优方案比选
+        # ==========================================
+        st.markdown("---")
+        st.subheader("🛠️ 高危区靶向处治与工程预算最优方案比选")
+
+        if len(regions) > 0:
+            st.info(
+                f"📍 **智能巡检系统报告:** 在当前路段中成功识别出 **{len(regions)}** 个独立滑水高危核心区，已自动为您生成靶向处治匹配与经济性分析表。")
+
+            # 调用我们在 treatment_decision.py 中写的函数生成方案与预算
+            df_plan, budget_summary = generate_treatment_plan_and_budget(
+                regions=regions,
+                risk_score_matrix_shape=risk_score_matrix.shape,
+                fine_dx_mm=st.session_state.fine_dx_mm,
+                area_ratio=area_ratio
+            )
+
+            # 展示分区域处治方案详细表格
+            st.dataframe(df_plan, hide_index=True, use_container_width=True)
+
+            # 预算对比展示
+            col_b1, col_b2, col_b3 = st.columns(3)
+            col_b1.metric("🤖 智能靶向刻槽方案总估价", f"¥ {budget_summary['smart_cost']:,.1f}", "包含500元无人机巡检费",
+                          delta_color="inverse")
+            col_b2.metric("🚜 传统全域铣刨重铺总估价", f"¥ {budget_summary['trad_cost']:,.1f}")
+            col_b3.metric("💰 方案预计降低养护成本", f"{budget_summary['saving_ratio']:.1f} %", "经济效益显著")
+
+            st.success(
+                f"**最终决策建议：** 相比“发现积水即大面积铣刨”的传统盲目处治，采用 **[ 无人机高精度检测 + 目标路段靶向自动刻槽 ]** 策略可精准解决局部水膜隐患。据上表核算，本次优化策略预计可为您节约 **{budget_summary['saving_ratio']:.1f}%** 的养护工程预算！")
+
+        else:
+            st.success(
+                "🎉 当前设定的降雨环境与路面状态下，暂未检出面积足够大且深度的严重积水高危区 (A/B级)，无需启动强制工程处治程序。")
 else:
     st.info("💡 请先在上方执行“动态降雨推演”，生成水膜分布数据后，即可在此处运行风险评估。")
