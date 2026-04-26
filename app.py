@@ -5,10 +5,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import time
 import os
-import io
 import h5py
 import tempfile
-from datetime import datetime
 from scipy.ndimage import label, generate_binary_structure, binary_dilation
 from scipy.ndimage import zoom
 from scipy.ndimage import median_filter
@@ -533,6 +531,7 @@ with st.sidebar:
     max_h_step = st.slider("最大水位爬升步长(mm)", 0.000, 0.100, 0.010, step=0.002, format="%.3f")
     btn_run_sim = st.button("🌊 2. 开始动态降雨推演", type="primary", use_container_width=True,
                             disabled=not st.session_state.road_loaded)
+
 
 # ==========================================
 # 主界面逻辑处理：状态分发机制
