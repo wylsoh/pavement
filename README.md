@@ -32,7 +32,7 @@
 
 1. **克隆项目仓库**
 ```bash
-git clone [https://github.com/wylsoh/pavement.git](https://github.com/wylsoh/pavement.git)
+git clone https://github.com/wylsoh/pavement.git
 cd pavement
 ```
 2. **安装依赖包**
