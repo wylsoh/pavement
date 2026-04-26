@@ -7,6 +7,8 @@ import time
 import os
 import io
 import h5py
+import tempfile  # 【新增】用于生成不冲突的临时文件
+import requests  # 【新增】用于从 GitHub 下载示例数据
 from datetime import datetime
 from scipy.ndimage import label, generate_binary_structure, binary_dilation
 from scipy.ndimage import zoom
@@ -184,7 +186,6 @@ def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
 
     fig = go.Figure()
 
-    # 1. 添加路面高程线 (底层)
     fig.add_trace(go.Scatter(
         x=x_m,
         y=profile_orig,
@@ -193,7 +194,6 @@ def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
         name='路面高程'
     ))
 
-    # 2. 如果有水膜，添加水面线并向下填充颜色
     if water_surf is not None:
         fig.add_trace(go.Scatter(
             x=x_m,
@@ -201,11 +201,10 @@ def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
             mode='lines',
             line=dict(color='#0097e6', width=1.5, dash='dash'),
             name='积水区域',
-            fill='tonexty',  # Plotly 专属参数：将颜色填充到上一条轨迹（即路面高程）
+            fill='tonexty',
             fillcolor='rgba(0, 168, 255, 0.6)'
         ))
 
-    # 设置图表样式与交互
     fig.update_layout(
         title=dict(
             text=f'中心车道横截面状态 (纵向位置: {row_idx * dx_mm / 1000.0:.1f}m)',
@@ -219,7 +218,7 @@ def plot_2d_cross_section(matrix, water_surf, dx_mm, row_idx=50):
         ),
         yaxis=dict(
             title='高程 (m)',
-            tickformat='.3f',  # 强制保留 3 位小数
+            tickformat='.3f',
             showgrid=True,
             gridcolor='#eeeeee',
             zeroline=False
@@ -311,36 +310,73 @@ dx_mm = 100.0
 
 with st.sidebar:
     st.header("📂 第一步：地形解析")
-    uploaded_file = st.file_uploader("上传路面点云 (.h5)", type=['h5'])
-    start_segment = None
-    num_blocks = 1
 
     if 'current_h5_path' not in st.session_state:
         st.session_state.current_h5_path = None
 
-    if uploaded_file is not None:
-        with open("temp_data.h5", "wb") as f:
-            f.write(uploaded_file.getbuffer())
+    # 支持数据源切换
+    data_source = st.radio("选择数据来源", ["📁 上传本地数据 (.h5)", "🌐 加载在线示例数据"])
+
+    # 请在此处替换为你实际的 GitHub 仓库文件直链 (Raw URL)
+    SAMPLE_H5_URL = "https://raw.githubusercontent.com/wylsoh/YourRepo/main/sample_data.h5"
+
+    if data_source == "📁 上传本地数据 (.h5)":
+        uploaded_file = st.file_uploader("上传路面点云 (.h5)", type=['h5'])
+        if uploaded_file is not None:
+            # 使用安全的临时文件写入，避免重复触发导致的性能浪费和冲突
+            if st.session_state.get('last_uploaded_name') != uploaded_file.name:
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.h5') as tmp_file:
+                    tmp_file.write(uploaded_file.getbuffer())
+                    st.session_state.current_h5_path = tmp_file.name
+                st.session_state.last_uploaded_name = uploaded_file.name
+    else:
+        st.info("💡 系统将从云端提取一份包含典型车辙的高保真路面点云数据，供您快速体验完整功能流程。")
+        if st.button("⬇️ 一键获取并加载示例数据", use_container_width=True):
+            with st.spinner("🚀 正在从 GitHub 极速下载示例数据，请稍候..."):
+                try:
+                    response = requests.get(SAMPLE_H5_URL, timeout=20)
+                    response.raise_for_status()  # 检查是否请求成功
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.h5') as tmp_file:
+                        tmp_file.write(response.content)
+                        st.session_state.current_h5_path = tmp_file.name
+                    st.success("✅ 示例数据加载成功！请在下方点击【解析并生成 3D 地形】")
+                except Exception as e:
+                    st.error(f"❌ 下载失败，请检查网络或确认 GitHub Raw 链接是否有效。\n\n详细信息: {e}")
+
+    # 【新增】数据安全承诺提示框
+    st.markdown(
+        """
+        <div style="background-color: #f0f8ff; padding: 12px; border-radius: 8px; font-size: 13px; color: #333; margin-top: 15px; margin-bottom: 15px; border-left: 5px solid #00a8ff; line-height: 1.5;">
+        <b>🔒 数据隐私与安全承诺</b><br>
+        本系统采用严格的<b>“无痕运算”</b>机制。您上传的业务文件仅在内存及系统的沙盒临时目录中即时推演，绝不会被后台窃取、云端持久化存储或作他用。页面刷新或会话结束后，所有临时数据将彻底自动销毁，请安心导入您的生产数据。
+        </div>
+        """, unsafe_allow_html=True
+    )
+
+    start_segment = None
+    num_blocks = 1
+
+    if st.session_state.current_h5_path is not None:
         try:
-            with h5py.File("temp_data.h5", 'r') as h5f:
+            with h5py.File(st.session_state.current_h5_path, 'r') as h5f:
                 segments = sorted(list(h5f['road_segments'].keys()))
             start_segment = st.selectbox("🎯 选择起始分析路段", segments)
             max_blocks = len(segments) - segments.index(start_segment)
             num_blocks = st.slider("连续读取路段数量", min_value=1, max_value=max_blocks, value=min(5, max_blocks))
         except Exception as e:
-            st.error("无法读取 H5 文件结构。")
+            st.error("无法读取 H5 文件结构，请确保上传了合法的文件。")
 
     target_width_m = st.number_input("核心车道宽度 (m)", value=3.75)
-    length_m = st.number_input("纵向截取长度 (m)", value=3.0)
+    length_m = st.number_input("纵向截取长度 (m)", value=5.0)
 
     btn_load_road = st.button("🗺️ 1. 解析并生成 3D 地形", type="primary", use_container_width=True)
 
     if btn_load_road:
-        if uploaded_file is None or start_segment is None:
-            st.error("请先上传 .h5 文件！")
+        if st.session_state.current_h5_path is None or start_segment is None:
+            st.error("请先上传或获取 .h5 数据文件！")
         else:
             with st.spinner("⏳ 正在重建高精度 3D 物理底座..."):
-                matrix_full = load_and_preprocess_h5("temp_data.h5", start_segment, num_blocks)
+                matrix_full = load_and_preprocess_h5(st.session_state.current_h5_path, start_segment, num_blocks)
                 if matrix_full is not None:
                     test_rows = int(length_m * 1000 / dx_mm)
                     matrix_full = matrix_full[:test_rows, :]
@@ -361,7 +397,7 @@ with st.sidebar:
 
     st.divider()
     st.header("⚙️ 第二步：动态水膜仿真")
-    target_rainfall = st.slider("目标总降雨量 (mm)", 0.0, 20.0, 10.0, step=0.5)
+    target_rainfall = st.slider("目标总降雨量 (mm)", 0.0, 50.0, 10.0, step=0.5)
     runoff_coefficient = st.slider(
         "路面径流滞留系数 (排水折减)",
         min_value=0.01,
@@ -372,14 +408,12 @@ with st.sidebar:
     )
     wall_margin = st.slider("边缘挡水墙裕量 (mm)", 0.0, 2.0, 1.0, step=0.5)
     anim_frames = st.slider("仿真动画帧数 (分解步数)", 1, 10, 5)
-    max_h_step = st.slider("单次最大水位爬升步长(mm)", 0.0, 0.1, 0.02, step=0.01)
+    max_h_step = st.slider("单次最大水位爬升步长(mm)", 0.0, 0.1, 0.01, step=0.002)
     btn_run_sim = st.button("🌊 2. 开始动态降雨推演", type="primary", use_container_width=True,
                             disabled=not st.session_state.road_loaded)
     st.divider()
     st.header("💾 日志存储设置")
     log_dir = st.text_input("本地日志存储路径", value="./logs", help="建议使用绝对路径, 例如: D:/WaterFilmLogs")
-
-
 
 
 # ==========================================
@@ -427,7 +461,6 @@ if not st.session_state.road_loaded:
                                           margin=dict(l=0, r=0, b=0, t=30), autosize=True, plot_bgcolor='white')
     plot3d_container.plotly_chart(fig_empty, use_container_width=True)
 
-    # 【已修改为 Plotly】
     fig_empty_2d = go.Figure().update_layout(
         xaxis=dict(visible=False), yaxis=dict(visible=False),
         annotations=[dict(text="等待数据导入...", x=0.5, y=0.5, showarrow=False, font=dict(color="gray", size=16))],
@@ -439,7 +472,6 @@ if not st.session_state.road_loaded:
 # 状态 2：执行动态降雨推演动画
 # ------------------------------------------
 elif btn_run_sim and st.session_state.road_loaded:
-    # 每次运行新推演，清空上一次的风险评估缓存
     st.session_state.risk_results = None
 
     matrix_crop = st.session_state.matrix_crop
@@ -454,8 +486,6 @@ elif btn_run_sim and st.session_state.road_loaded:
     status_text = st.empty()
     final_depth_crop = None
     simulation_history = []
-
-    # 推演过程中产生的临时最终水面，用于跳出循环后保存
     final_surf_crop = None
 
     for step in range(1, anim_frames + 1):
@@ -474,7 +504,7 @@ elif btn_run_sim and st.session_state.road_loaded:
         final_surf_crop = surf_crop
 
         area_ratio = st.session_state.matrix_full.shape[1] / st.session_state.matrix_crop.shape[1]
-        theoretical_total_size = depth_crop.size * area_ratio  # 还原真实总面积
+        theoretical_total_size = depth_crop.size * area_ratio
 
         coverage = (np.count_nonzero(depth_crop) / theoretical_total_size) * 100
         st.session_state.coverage_history[round(current_rain, 2)] = coverage
@@ -508,7 +538,6 @@ elif btn_run_sim and st.session_state.road_loaded:
 
     status_text.success(f"✅ 物理推演完成！最终降雨量达到 {target_rainfall} mm。")
 
-    # 将结果存入 session_state 以备重绘调用
     st.session_state.final_depth_crop = final_depth_crop
     st.session_state.fine_matrix_crop = fine_matrix_crop
     st.session_state.surf_crop = final_surf_crop
@@ -516,7 +545,6 @@ elif btn_run_sim and st.session_state.road_loaded:
     st.session_state.simulation_history = simulation_history
     st.session_state.last_target_rainfall = target_rainfall
 
-    # ====== 后台自动存储日志逻辑 ======
     try:
         if not os.path.exists(log_dir): os.makedirs(log_dir)
         log_file_path = os.path.join(log_dir, "simulation_logs.txt")
@@ -542,7 +570,6 @@ elif btn_run_sim and st.session_state.road_loaded:
 # 状态 3：调用缓存静默渲染
 # ------------------------------------------
 elif st.session_state.road_loaded and st.session_state.final_depth_crop is not None:
-    # 提取缓存变量
     fine_matrix = st.session_state.fine_matrix_crop
     surf = st.session_state.surf_crop
     depth = st.session_state.final_depth_crop

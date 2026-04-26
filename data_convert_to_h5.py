@@ -13,6 +13,8 @@ def convert_mat_to_h5(src_folder, h5_filepath):
     files = [f for f in os.listdir(src_folder) if f.endswith('.mat')]
     files.sort()  # 确保 0001, 0002 顺序正确
 
+    # files = files[:20]
+
     if not files:
         print("❌ 未找到任何 .mat 文件！")
         return
@@ -70,6 +72,6 @@ if __name__ == "__main__":
     # 源文件夹路径
     source_dir = 'data/mat2'
     # h5文件的保存路径
-    output_h5 = 'data/PavementDatabase.h5'
+    output_h5 = 'data/text_data.h5'
 
     convert_mat_to_h5(source_dir, output_h5)
