@@ -53,14 +53,14 @@ streamlit run app.py
 
 ## 📂 项目结构
 ```Plaintext
-pavement/
-├── app.py                   # Streamlit 主程序入口
-├── risk_assessment.py       # 滑水风险评估算法模块
-├── treatment_decision.py    # 连通域高危识别与靶向处治决策模块
-├── theme_manager.py         # 全局 UI 样式配置与暗黑/白天双模式主题控制
-├── data_convert_to_h5.py    # 数据清洗与 h5 格式转换脚本
-├── requirements.txt         # Python 依赖清单
+Pavement/
 ├── assets/
-│   └── sample_data.h5       # 内置高保真路面点云体验数据
-└── README.md
+│   ├── data_convert_to_h5.py      # 原始点云数据(.mat等)转.h5清洗脚本
+│   └── sample_data.h5             # 系统内置的高保真路面点云体验数据
+├── modules/
+│   ├── risk_assessment.py         # 全域滑水风险评估与车辆动力学算法模块
+│   └── treatment_decision.py      # 连通域高危病害识别与靶向处治造价测算模块
+├── app.py                         # Streamlit Web 前端主程序入口
+├── README.md                      # 项目说明文档
+└── requirements.txt               # Python 运行环境依赖清单
 ```
