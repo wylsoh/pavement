@@ -13,6 +13,7 @@ from scipy.ndimage import median_filter
 
 from modules.risk_assessment import evaluate_hydroplaning_risk, dynamic_decision_making, render_risk_heatmap
 from modules.treatment_decision import extract_high_risk_regions, add_bounding_boxes_to_fig, generate_treatment_plan_and_budget
+from modules.report_generator import render_report_download_button
 
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
 plt.rcParams['axes.unicode_minus'] = False
@@ -846,6 +847,13 @@ if st.session_state.final_depth_crop is not None:
             st.success(
                 f"**最终决策建议：** 相比“发现积水即大面积铣刨”的传统盲目处治，采用 **[ 无人机高精度检测 + 目标路段靶向自动刻槽 ]** 策略可精准解决局部水膜隐患。据上表核算，本次优化策略预计可为您节约 **{budget_summary['saving_ratio']:.1f}%** 的养护工程预算！")
 
+            # 输出报告
+            render_report_download_button(
+                df_plan=df_plan,
+                budget_summary=budget_summary,
+                target_rainfall=st.session_state.last_target_rainfall,
+                num_regions=len(regions)
+            )
         else:
             st.success(
                 "🎉 当前设定的降雨环境与路面状态下，暂未检出面积足够大且深度的严重积水高危区 (A/B级)，无需启动强制工程处治程序。")
