@@ -316,7 +316,6 @@ with st.sidebar:
     # 支持数据源切换
     data_source = st.radio("选择数据来源", ["📁 上传本地数据 (.h5)", "🌐 加载在线示例数据"])
 
-    # 请在此处替换为你实际的 GitHub 仓库文件直链 (Raw URL)
     SAMPLE_H5_URL = "assets/sample_data.h5"
 
     if data_source == "📁 上传外部数据 (.h5)":
@@ -398,7 +397,7 @@ with st.sidebar:
         "路面径流滞留系数 (排水折减)",
         min_value=0.01,
         max_value=1.00,
-        value=0.15,
+        value=0.01,
         step=0.01,
         help="模拟路面横纵坡的排水能力。1.0表示无排水（变死水潭），0.15表示85%的雨水被排走，仅15%滞留在车辙与构造中。"
     )
