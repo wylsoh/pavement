@@ -318,7 +318,7 @@ with st.sidebar:
     data_source = st.radio("选择数据来源", ["📁 上传本地数据 (.h5)", "🌐 加载在线示例数据"])
 
     # 请在此处替换为你实际的 GitHub 仓库文件直链 (Raw URL)
-    SAMPLE_H5_URL = "https://raw.githubusercontent.com/wylsoh/YourRepo/main/sample_data.h5"
+    SAMPLE_H5_URL = "https://github.com/wylsoh/pavement/tree/master/assets/sample_data.h5"
 
     if data_source == "📁 上传本地数据 (.h5)":
         uploaded_file = st.file_uploader("上传路面点云 (.h5)", type=['h5'])
