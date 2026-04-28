@@ -26,7 +26,7 @@
 - **Web 框架**: `Streamlit`
 - **数据处理**: `numpy`, `pandas`, `h5py`
 - **算法计算**: `scipy` (ndimage 连通域、形态学处理、高斯滤波)
-- **可视化**: `plotly`, `matplotlib`
+- **可视化**: `plotly`
 
 ## ⚙️ 本地部署与快速开始
 
