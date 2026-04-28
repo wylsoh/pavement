@@ -2,8 +2,6 @@
 import numpy as np
 import pandas as pd
 from scipy.ndimage import label, find_objects
-import plotly.graph_objects as go
-
 
 def extract_high_risk_regions(risk_score_matrix, depth_matrix, fine_dx_mm, area_ratio=1.0):
     """
@@ -51,8 +49,7 @@ def extract_high_risk_regions(risk_score_matrix, depth_matrix, fine_dx_mm, area_
 
     return regions
 
-
-def add_bounding_boxes_to_fig(fig, regions):
+def add_bounding_boxes(fig, regions):
     """
     风险热力图上叠加高危区域的边界红框。
     """
@@ -83,7 +80,7 @@ def add_bounding_boxes_to_fig(fig, regions):
     return fig
 
 
-def generate_treatment_plan_and_budget(regions, risk_score_matrix_shape, fine_dx_mm, area_ratio):
+def generate_plan_and_budget(regions, risk_score_matrix_shape, fine_dx_mm, area_ratio):
     """
     基于各个独立高危区域的面积和深度，进行分区域报价和方案比选。
     """

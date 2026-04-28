@@ -52,7 +52,7 @@ def evaluate_hydroplaning_risk(water_depth_mm):
     return prob_matrix, risk_level_matrix, risk_score_matrix
 
 
-def dynamic_decision_making(risk_level_matrix, area_ratio=1.0):
+def dynamic_decision(risk_level_matrix, area_ratio=1.0):
     """
     根据面域风险分布生成动态决策
     """
@@ -82,7 +82,7 @@ def dynamic_decision_making(risk_level_matrix, area_ratio=1.0):
     }
 
 
-def render_risk_heatmap(risk_score_matrix):
+def risk_heatmap(risk_score_matrix):
     """
     绘制风险热力图
     """

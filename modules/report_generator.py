@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-def render_report_download_button(df_plan, budget_summary, target_rainfall, num_regions):
+def render_report(df_plan, budget_summary, target_rainfall, num_regions):
     """
     根据传入的处治方案、预算汇总和环境参数，生成专业的业务审计报告文本，
     并在前端渲染一个下载按钮。

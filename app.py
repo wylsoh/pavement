@@ -10,9 +10,9 @@ from scipy.ndimage import label, generate_binary_structure, binary_dilation
 from scipy.ndimage import zoom
 from scipy.ndimage import median_filter
 
-from modules.risk_assessment import evaluate_hydroplaning_risk, dynamic_decision_making, render_risk_heatmap
-from modules.treatment_decision import extract_high_risk_regions, add_bounding_boxes_to_fig, generate_treatment_plan_and_budget
-from modules.report_generator import render_report_download_button
+from modules.risk_assessment import evaluate_hydroplaning_risk, dynamic_decision, risk_heatmap
+from modules.treatment_decision import extract_high_risk_regions, add_bounding_boxes, generate_plan_and_budget
+from modules.report_generator import render_report
 
 np.set_printoptions(suppress=True)
 
@@ -767,7 +767,7 @@ if st.session_state.final_depth_crop is not None:
         with st.spinner("⏳ 正在结合水膜厚度与车速分布计算全域滑水概率..."):
             prob_matrix, risk_level_matrix, risk_score_matrix = evaluate_hydroplaning_risk(water_depth * 1000.0)
             area_ratio = st.session_state.matrix_full.shape[1] / st.session_state.matrix_crop.shape[1]
-            decision = dynamic_decision_making(risk_level_matrix, area_ratio)
+            decision = dynamic_decision(risk_level_matrix, area_ratio)
 
             st.session_state.risk_results = {
                 "decision": decision,
@@ -794,7 +794,7 @@ if st.session_state.final_depth_crop is not None:
 
         st.markdown("#### 面域级滑水风险图谱 (含高危区自动智能框选)")
 
-        risk_fig = render_risk_heatmap(risk_score_matrix)
+        risk_fig = risk_heatmap(risk_score_matrix)
 
         # 热力图设置透明背景
         risk_fig.update_layout(
@@ -815,7 +815,7 @@ if st.session_state.final_depth_crop is not None:
         )
 
         if len(regions) > 0:
-            risk_fig = add_bounding_boxes_to_fig(risk_fig, regions)
+            risk_fig = add_bounding_boxes(risk_fig, regions)
 
         st.plotly_chart(risk_fig, use_container_width=True)
 
@@ -826,7 +826,7 @@ if st.session_state.final_depth_crop is not None:
             st.info(
                 f"📍 **智能巡检系统报告:** 在当前路段中成功识别出 **{len(regions)}** 个独立滑水高危核心区，已自动为您生成靶向处治匹配与经济性分析表。")
 
-            df_plan, budget_summary = generate_treatment_plan_and_budget(
+            df_plan, budget_summary = generate_plan_and_budget(
                 regions=regions,
                 risk_score_matrix_shape=risk_score_matrix.shape,
                 fine_dx_mm=st.session_state.fine_dx_mm,
@@ -845,7 +845,7 @@ if st.session_state.final_depth_crop is not None:
                 f"**最终决策建议：** 相比“发现积水即大面积铣刨”的传统盲目处治，采用 **[ 无人机高精度检测 + 目标路段靶向自动刻槽 ]** 策略可精准解决局部水膜隐患。据上表核算，本次优化策略预计可为您节约 **{budget_summary['saving_ratio']:.1f}%** 的养护工程预算！")
 
             # 输出报告
-            render_report_download_button(
+            render_report(
                 df_plan=df_plan,
                 budget_summary=budget_summary,
                 target_rainfall=st.session_state.last_target_rainfall,
