@@ -54,16 +54,10 @@ def extract_high_risk_regions(risk_score_matrix, depth_matrix, fine_dx_mm, area_
 
 def add_bounding_boxes_to_fig(fig, regions):
     """
-    在已有的 Plotly 风险热力图上，叠加高危区域的边界红框。
-    修复错位：直接使用热力图底层的矩阵 Index 坐标系，并处理翻转。
+    风险热力图上叠加高危区域的边界红框。
     """
-    # 强制让 Y 轴像图像一样从上往下分布，解决上下翻转的问题！
-    # fig.update_yaxes(autorange="reversed")
-
     for reg in regions:
-        # 因为矩阵转置了 (risk_score_matrix.T)
-        # 热力图的 X 轴对应长度 (Row / ymin~ymax)
-        # 热力图的 Y 轴对应宽度 (Col / xmin~xmax)
+        # 同步转置逻辑
         x0, x1 = reg['ymin'], reg['ymax']
         y0, y1 = reg['xmin'], reg['xmax']
 
@@ -92,7 +86,6 @@ def add_bounding_boxes_to_fig(fig, regions):
 def generate_treatment_plan_and_budget(regions, risk_score_matrix_shape, fine_dx_mm, area_ratio):
     """
     基于各个独立高危区域的面积和深度，进行分区域报价和方案比选。
-    修复预算逻辑：传统铣刨必须按全车道宽度和影响长度进行计价！
     """
     INSPECTION_COST = 500.0  # 无人机巡检单次基准费
     GROOVE_UNIT_PRICE = 18.0  # 靶向自动刻槽单价 (元/m²)
@@ -110,10 +103,10 @@ def generate_treatment_plan_and_budget(regions, risk_score_matrix_shape, fine_dx
         area = reg["area_m2"]
         max_d = reg["max_depth_mm"]
 
-        # 【1. 靶向智能处治面积】：只针对真实水坑面积外扩30%作业面
+        # 靶向智能处治面积：只针对真实水坑面积外扩30%作业面
         smart_treat_area = area * 1.3
 
-        # 【2. 传统全域处治面积】：受影响纵向长度 × 全车道宽度
+        # 传统全域处治面积：受影响纵向长度 × 全车道宽度
         affected_length = (reg["ymax"] - reg["ymin"]) * (fine_dx_mm / 1000.0)
         # 传统工程中，单次铣刨重铺的纵向长度通常不低于 5 米
         if affected_length < 5.0:

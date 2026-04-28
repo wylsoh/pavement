@@ -7,26 +7,26 @@ def evaluate_hydroplaning_risk(water_depth_mm):
     """
     结合车速分布与水膜厚度，计算全域滑水风险概率矩阵
     """
-    # 1. 设置车速分布参数 (引自文献1: 限速80km/h时的实测正态分布)
+    # 设置车速分布参数 (参考限速80km/h时的实测正态分布)
     mu_v = 75.3  # 平均车速 km/h
     sigma_v = 5.7  # 车速标准差 km/h
 
-    # 2. 计算临界滑水速度 vc
+    # 计算临界滑水速度 vc
     # 初始化一个极大的安全速度 (代表无积水区域不发生滑水)
     vc_matrix = np.full_like(water_depth_mm, 200.0, dtype=float)
 
     # 提取积水区域 (>0.1mm)
     wet_mask = water_depth_mm > 0.1
 
-    # 【核心公式】：拟合自文献2中江守一郎公式关系曲线 (水膜越厚，临界速度越低)
+    # 江守一郎公式关系曲线 (水膜越厚，临界速度越低)
     # 在 2mm 时约为 110km/h，在 4mm 时约为 80km/h，在 10mm 时约为 57km/h
     vc_matrix[wet_mask] = 145.0 * (water_depth_mm[wet_mask] ** -0.4)
 
-    # 3. 计算滑水概率 P(v > vc) = 1 - CDF(vc)
-    # 使用 SciPy 的生存函数 (Survival Function, sf) 来计算车速超越临界速度的概率
+    # 计算滑水概率 P(v > vc) = 1 - CDF(vc)
+    # 使用SciPy的生存函数计算车速超越临界速度的概率
     prob_matrix = norm.sf(vc_matrix, loc=mu_v, scale=sigma_v)
 
-    # 4. 根据概率划分风险等级 (引自文献1表1的量化标准)
+    # 根据概率划分风险等级
     risk_level_matrix = np.full_like(prob_matrix, 'E', dtype=object)
     risk_score_matrix = np.zeros_like(prob_matrix, dtype=int)
 
@@ -84,10 +84,10 @@ def dynamic_decision_making(risk_level_matrix, area_ratio=1.0):
 
 def render_risk_heatmap(risk_score_matrix):
     """
-    利用 Plotly 绘制风险热力图
+    绘制风险热力图
     """
-    transposed_matrix = risk_score_matrix.T
     # 反转 Y 轴使其与路面图像的朝向一致
+    transposed_matrix = risk_score_matrix.T
     fig = px.imshow(
         transposed_matrix,
         color_continuous_scale=[

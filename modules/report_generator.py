@@ -3,16 +3,12 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-
 def render_report_download_button(df_plan, budget_summary, target_rainfall, num_regions):
     """
     根据传入的处治方案、预算汇总和环境参数，生成专业的业务审计报告文本，
     并在前端渲染一个下载按钮。
     """
-    # 1. 获取当前系统时间
     report_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # 2. 拼接专业报告内容
     report_content = f"""==================================================
 高速公路路面积水智能识别与处治评估报告
 ==================================================
@@ -27,7 +23,7 @@ def render_report_download_button(df_plan, budget_summary, target_rainfall, num_
 [ 2. 靶向处治工程方案明细 ]
 --------------------------------------------------
 """
-    # 将 DataFrame 转换为整齐的文本格式追加到报告中
+    # 将 DataFrame 转换为文本格式追加到报告中
     report_content += df_plan.to_string(index=False)
 
     # 3. 追加预算审计结果
@@ -47,9 +43,9 @@ def render_report_download_button(df_plan, budget_summary, target_rainfall, num_
 ==================================================
 """
 
-    # 4. 在前端渲染居中的下载按钮
-    st.markdown("<br>", unsafe_allow_html=True)  # 稍微加点上边距
-    col1, col2, col3 = st.columns([1, 2, 1])  # 让按钮居中显示更美观
+    # 渲染下载按钮
+    st.markdown("<br>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.download_button(
             label="📥 一键导出《路面智能处治审计报告》(业务留痕)",
@@ -57,5 +53,5 @@ def render_report_download_button(df_plan, budget_summary, target_rainfall, num_
             file_name=f"水患处治与造价审计报告_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
             mime="text/plain",
             type="primary",
-            use_container_width=True  # 让按钮撑满整个居中列
+            use_container_width=True
         )

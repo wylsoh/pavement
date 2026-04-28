@@ -1,7 +1,6 @@
 import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt
 import pandas as pd
 import time
 import os
@@ -15,8 +14,6 @@ from modules.risk_assessment import evaluate_hydroplaning_risk, dynamic_decision
 from modules.treatment_decision import extract_high_risk_regions, add_bounding_boxes_to_fig, generate_treatment_plan_and_budget
 from modules.report_generator import render_report_download_button
 
-plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
-plt.rcParams['axes.unicode_minus'] = False
 np.set_printoptions(suppress=True)
 
 # ==========================================
@@ -94,7 +91,7 @@ if st.session_state.dark_mode:
     theme_css = f"""
     <style>
     {base_css}
-    /* 暗黑模式全局底色 (深邃护眼) */
+    /* 暗黑模式全局底色 */
     .stApp {{ background-color: #0d1117 !important; color: #c9d1d9 !important; }}
 
     /* 主内容卡片 (深空灰) */
@@ -107,10 +104,10 @@ if st.session_state.dark_mode:
     /* 侧边栏 */
     [data-testid="stSidebar"] {{ background-color: #010409 !important; }}
 
-    /* 强制文本颜色 (排除按钮内部，防止覆盖) */
+    /* 强制文本颜色 */
     h1, h2, h3, h4, h5, h6, p, label, .stMarkdown {{ color: #c9d1d9 !important; }}
 
-    /* --- 修复：暗黑模式按钮专属样式 --- */
+    /* --- 暗黑模式按钮专属样式 --- */
     /* 普通按钮 (Secondary) */
     .stButton > button {{
         background-color: #21262d !important;
@@ -138,10 +135,10 @@ else:
     theme_css = f"""
     <style>
     {base_css}
-    /* 白天护眼模式全局底色 (淡淡的莫兰迪蓝灰) */
+    /* 白天护眼模式全局底色 (莫兰迪蓝灰) */
     .stApp {{ background-color: #e9eef5 !important; color: #2c3e50 !important; }}
 
-    /* 主内容卡片 (珍珠白，降低反射率) */
+    /* 主内容卡片 (珍珠白) */
     .main .block-container {{
         background-color: #f4f7fa !important;
         padding: 3rem; border-radius: 12px;
@@ -151,10 +148,10 @@ else:
     /* 侧边栏 */
     [data-testid="stSidebar"] {{ background-color: #e0e6ed !important; }}
 
-    /* 文本使用深藏青色代替纯黑，减少视觉疲劳 */
+    /* 文本使用深藏青色代替纯黑 */
     h1, h2, h3, h4, h5, h6, p, label, .stMarkdown {{ color: #2c3e50 !important; }}
 
-    /* --- 修复：白天模式按钮专属样式 --- */
+    /* --- 白天模式按钮专属样式 --- */
     /* 普通按钮 (Secondary) */
     .stButton > button {{
         background-color: #ffffff !important;
@@ -799,7 +796,7 @@ if st.session_state.final_depth_crop is not None:
 
         risk_fig = render_risk_heatmap(risk_score_matrix)
 
-        # 将外部导入的热力图强制设置透明背景以适应全局主题
+        # 热力图设置透明背景
         risk_fig.update_layout(
             template="plotly_dark" if is_dark else "plotly_white",
             plot_bgcolor='rgba(0,0,0,0)',
